@@ -1,12 +1,12 @@
 import * as THREE from "three";
-import { groundHeight, randomGenerator, smoothstep, vec } from "./math.js";
+import { channel, groundHeight, randomGenerator, smoothstep, vec } from "./math.js";
 import { FLOW_DIRECTION } from "./water.js";
+import { inHardscape } from "./layout.js";
 import { TAU, stem, stemStrand } from "./foliage.js";
 
-// The background stem plants: Limnophila sessiliflora, whose whorls of fine keeled leaves
-// make the feathery columns rising past the grass at the sides, and Hygrophila polysperma,
-// whose opposite pairs of small lanceolate leaves fill the sparser, shadier group behind
-// the wood.
+// Background stems among the wood: mostly Hygrophila polysperma with opposite pairs
+// of small lanceolate leaves, and a few fine-leaved Limnophila sessiliflora shoots.
+// Their uneven canopy fills the spaces behind the trunks while the carpet stays low.
 //
 // Neither is built as a shape. Both are built as the record of a growth: an apex that rose
 // toward the light, leaned on the way, was pushed downstream by the flow it grew in, and
@@ -49,6 +49,7 @@ function leaf(batch, points, halfWidth, colors, anchor, node, options) {
     thin = 0.78,
     needle = true,
     reach = 0.75,
+    pinnate = false,
   } = options;
   const curve = new THREE.QuadraticBezierCurve3(...points);
   const length = curve.getLength();
@@ -86,12 +87,12 @@ function leaf(batch, points, halfWidth, colors, anchor, node, options) {
       // own, so both its halves are mapped onto the inner flank of the shared leaf texture:
       // they take its gentle edge shading and never its wide bright rib, which on a leaf
       // two pixels across would cover the whole of it and blow out to a white speck.
-      const u = needle ? 0.62 + 0.28 * Math.abs(across) : j / cols;
+      const u = needle && !pinnate ? 0.62 + 0.28 * Math.abs(across) : j / cols;
       const p = center
         .clone()
         .addScaledVector(side, across * half)
         .addScaledVector(normal, half * ridge * (1 - Math.abs(across)));
-      batch.vertex(p, [u, t], tint, anchor, strand, thin);
+      batch.vertex(p, [u, t], tint, anchor, strand, thin, pinnate ? 1 : 0);
       if (i < rows && j < cols) {
         const a = start + i * (cols + 1) + j;
         batch.quad(a, a + 1, a + cols + 1, a + cols + 2);
@@ -199,6 +200,7 @@ function branchesOf(grow, batch, plant, curve, nodes, branches) {
       height: plant.height * range(0.42, 0.76),
       exposure: plant.exposure * range(0.9, 1.06),
       canopy: plant.canopy,
+      copper: plant.copper,
       compliance: plant.compliance * range(1, 1.12),
       path: {
         leanAngle: azimuth,
@@ -259,11 +261,10 @@ function limnophila(batch, plant) {
     range(0.96, 1),
     range(0.15, 0.195),
   );
-  // The leaf outline, not one of the thread-fine segments it divides into, is what the eye
-  // resolves at this distance, so a leaf is drawn at its full dissected width and left
-  // three-quarters translucent: a dissected blade covers only part of its own silhouette.
+  // A broad envelope with paired fine leaflets cut into its silhouette by the material.
+  // The same coverage is used for shadows, without tessellating every individual leaflet.
   const fullLength = range(0.6, 0.84);
-  const fullWidth = range(0.03, 0.042);
+  const fullWidth = range(0.09, 0.13);
   const keel = range(0.26, 0.38);
   const thin = range(0.74, 0.84);
   const whorl = range(5.6, 8.4);
@@ -334,6 +335,7 @@ function limnophila(batch, plant) {
           roll: range(-0.6, 0.6),
           azimuth,
           thin: senescent ? 0.88 : thin,
+          pinnate: true,
           reach: 0.75,
         },
       );
@@ -382,6 +384,10 @@ function hygrophila(batch, plant) {
     range(0.92, 1),
     range(0.14, 0.185),
   );
+  if (plant.copper) {
+    shaded.setHSL(0.065, 0.52, 0.09);
+    sunlit.setHSL(0.055, 0.62, 0.31);
+  }
   // A quarter of the shoots have taken enough light to flush bronze at the growing tip.
   const flushing = random() < 0.28;
   const flush = new THREE.Color().setHSL(
@@ -454,19 +460,15 @@ function hygrophila(batch, plant) {
   if (branches) branchesOf(hygrophila, batch, plant, curve, nodes, branches);
 }
 
-// The stands: dense at both sides, where the feathery stems rise past the top of the
-// frame; one short, sparse, shade-grown group in the middle of the back, behind the wood,
-// where the channel opens into dark water; and two well-lit, small-leaved mounds in the
-// midground that step the planting down from the grass to the sand, one on the left bank
-// of the channel and one behind the main stone. Stem plants are planted in bunches and
-// then branch from their lowest nodes, so they stand in clumps of unequal shoots sharing a
-// crown, not as scattered singles.
+// Dense stem groups overlap the rear ribbon grass. Small-leaved mounds step down toward
+// the channel, keeping the foreground open. Unequal shoots share a crown and branch
+// from their lower nodes, giving the background a layered rather than uniform canopy.
 const BANDS = [
-  { x: [-10.6, -6.2], z: [-6.0, -3.1], clumps: 11, shoots: [3, 5], height: [5.4, 10.2], exposure: [0.94, 1.16], feathery: 0.78 },
-  { x: [5.6, 10.6], z: [-6.0, -3.1], clumps: 10, shoots: [3, 5], height: [5.2, 10.0], exposure: [0.9, 1.12], feathery: 0.74 },
-  { x: [-3.0, 3.6], z: [-5.9, -3.4], clumps: 9, shoots: [2, 4], height: [4.2, 7.6], exposure: [0.5, 0.8], feathery: 0.5 },
-  { x: [-3.5, -0.9], z: [-3.4, -1.6], clumps: 7, shoots: [4, 6], height: [2.4, 4.2], exposure: [0.95, 1.15], feathery: 0.1, canopy: 2.6 },
-  { x: [4.3, 5.4], z: [-2.9, -1.7], clumps: 3, shoots: [3, 5], height: [2.2, 3.4], exposure: [0.9, 1.1], feathery: 0.1, canopy: 2.4 },
+  { x: [-10.5, -5.8], z: [-6.1, -3.5], clumps: 20, shoots: [3, 5], height: [4.0, 6.6], exposure: [0.85, 1.03], feathery: 0.10, canopy: 5.7 },
+  { x: [3.8, 10.5], z: [-6.1, -3.6], clumps: 23, shoots: [3, 5], height: [4.2, 6.8], exposure: [0.85, 1.06], feathery: 0.12, canopy: 5.8 },
+  { x: [-5.0, 3.4], z: [-6.1, -4.7], clumps: 19, shoots: [3, 5], height: [3.4, 5.6], exposure: [0.88, 1.06], feathery: 0, canopy: 4.8 },
+  { x: [-6.0, -2.7], z: [-3.6, -2.0], clumps: 8, shoots: [3, 5], height: [1.3, 2.6], exposure: [0.85, 1.04], feathery: 0, canopy: 2.2 },
+  { x: [3.8, 8.2], z: [-3.4, -2.1], clumps: 9, shoots: [3, 5], height: [1.4, 2.7], exposure: [0.86, 1.04], feathery: 0, canopy: 2.2 },
 ];
 
 export function plantStems(batch) {
@@ -483,7 +485,7 @@ export function plantStems(batch) {
       // The whorled plant is the one that runs to the surface; the small-leaved one keeps
       // to the middle of the tank, so the tallest stands are nearly all feathery.
       const feathery =
-        random() < band.feathery + 0.35 * smoothstep(6.5, 9.5, tallest);
+        random() < (band.copper ? 0 : band.feathery + 0.35 * smoothstep(6.5, 9.5, tallest));
       const species = feathery ? limnophila : hygrophila;
       const shoots = Math.round(range(band.shoots[0], band.shoots[1]));
       // The oldest shoot stands at the crown; the younger ones lean out around it, and the
@@ -497,6 +499,7 @@ export function plantStems(batch) {
         const x = cx + Math.cos(out) * offset;
         const z = cz + Math.sin(out) * offset * 0.7;
         const height = tallest * age * range(0.94, 1.06);
+        if (channel(x, z) > 0.24 || inHardscape(x, z, 0.12)) continue;
         const root = vec(x, groundHeight(x, z) - 0.03, z);
         // A shoot that reached the surface could grow no further up and turned to run
         // along it, downstream. How far it turned is simply how much more it grew than the
@@ -514,6 +517,7 @@ export function plantStems(batch) {
           // A shoot at the edge of the clump sees more light than the one inside it.
           exposure: exposure * (s === 0 ? 0.92 : range(0.98, 1.12)),
           canopy: band.canopy,
+          copper: band.copper,
           compliance: feathery ? range(0.46, 0.64) : range(0.3, 0.44),
           branches: height > 4.6 && random() < 0.42 ? (random() < 0.28 ? 2 : 1) : 0,
           path: {

@@ -1,4 +1,10 @@
 import * as THREE from "three";
+import { TRUNKS, ROCKS } from "./layout.js";
+import { createSurfaceSupport } from "./surface-support.js";
+import { createWoodSurface } from "./shrimp-habitat.js";
+import { distanceMaterial } from "./depth-backdrop.js";
+import { projectStoneMaterial } from "./stone-material.js";
+export { ROCKS };
 import {
   channel,
   groundHeight,
@@ -20,43 +26,12 @@ import {
 
 const TAU = Math.PI * 2;
 
-// Moss and algae settle where light reaches, where the current is sheltered, and where the
-// aquascaper tied moss on. Coverage runs 0 (bare) to 1 (dense turf). A slow noise field
-// lowers the threshold unevenly, so patches sit at different stages of growth.
-const MOSS_COLONIES = [
-  // The tied-on clump at the fork of the trunk, and a thinner growth higher up.
-  { center: vec(1.55, 3.07, 0.05), radius: 1.0, strength: 0.75 },
-  { center: vec(2.38, 2.77, 0.15), radius: 0.8, strength: 0.6 },
-  { center: vec(0.98, 3.42, -0.3), radius: 0.65, strength: 0.55 },
-  { center: vec(-0.9, 6.2, -0.95), radius: 0.5, strength: 0.35 },
-  // Stone shoulders: the sheltered side of the main stone where the trunk rises past it,
-  // the top of the secondary stone, and the low companions. The main stone's face stays
-  // mostly bare.
-  { center: vec(3.55, 1.7, 0.3), radius: 0.65, strength: 0.4 },
-  { center: vec(-4.25, 1.95, 0.2), radius: 0.5, strength: 0.45 },
-  { center: vec(-6.0, 1.1, 0.7), radius: 0.5, strength: 0.4 },
-  { center: vec(6.6, 1.35, -0.6), radius: 0.5, strength: 0.4 },
-];
-// The stones, shared with the plants that grow against them. They follow the convention of
-// a planted riverbed: one main stone at the foot of the wood, a secondary stone about two
-// thirds its size answering it across the channel, a companion behind each, a pale stone
-// at the trunk's base, and small stones trailing off along the sand. `lean` tips a stone
-// about the tank's front axis; the two big stones lean in toward the wood between them,
-// and the rest lean toward the channel, the way stones settle in a flow.
-// Order matters: the epiphytes in `broadleaf.js` hold onto a stone by its index here. Moss
-// colonies, fern tufts and sediment are placed by hand, so move a stone's growth with it.
-export const ROCKS = [
-  { x: 4.7, z: 0.35, rx: 1.7, ry: 1.5, rz: 1.15, lean: 0.15 },
-  { x: -4.7, z: -0.35, rx: 1.35, ry: 1.45, rz: 1.0, lean: -0.12 },
-  { x: 6.7, z: -0.85, rx: 1.05, ry: 0.82, rz: 1.0, lean: 0.1 },
-  { x: -6.05, z: 0.55, rx: 1.05, ry: 0.68, rz: 0.85, lean: -0.08 },
-  { x: 3.25, z: 1.45, rx: 0.6, ry: 0.48, rz: 0.55, lean: 0.25, pale: true },
-  { x: -3.05, z: 0.6, rx: 0.5, ry: 0.4, rz: 0.45, lean: -0.2 },
-  { x: 0.55, z: -2.6, rx: 0.45, ry: 0.36, rz: 0.42, lean: 0.15 },
-  { x: 5.35, z: 1.75, rx: 0.42, ry: 0.34, rz: 0.4, lean: 0.2 },
-  { x: 6.0, z: 1.3, rx: 0.38, ry: 0.3, rz: 0.35, lean: 0.2 },
-  { x: -2.1, z: 1.55, rx: 0.3, ry: 0.22, rz: 0.28, lean: -0.1 },
-];
+// Moss gathers around the damp wood bases and on the shoulders of the path stones.
+// The upper, peeled trunks stay mostly bare so their grain and old knots remain visible.
+const MOSS_COLONIES = TRUNKS.map(trunk => ({
+  center: vec(trunk.x, groundHeight(trunk.x, trunk.z) + 0.18, trunk.z),
+  radius: trunk.radius * 1.7, strength: 0.56,
+}));
 // A stone is buried to a little under half its height, and deeper the more it leans, so
 // the raised side of a leaning stone still meets the sand.
 export function rockCenterY(rock) {
@@ -66,87 +41,38 @@ export function rockCenterY(rock) {
     Math.abs(rock.lean) * rock.rx * 0.55
   );
 }
-// The driftwood: a trunk rising from behind the main stone to the upper left with a fork
-// at its tip, a limb reaching forward over the stones toward the glass, a stub higher up,
-// and roots at the base that run out over the sand and back behind the main stone. Fish
-// swim around the trunk and the limb; the trunk is also somewhere they go to look.
-const BRANCHES = [
-  {
-    p: [
-      [3.48, 0.37, -0.15],
-      [2.64, 1.52, -0.42],
-      [1.37, 3.6, -0.65],
-      [0.15, 5.25, -0.85],
-      [-1.49, 6.76, -1.05],
-      [-3.33, 7.95, -1.05],
-    ],
-    r: 0.78,
-    t: 0.12,
-    obstacle: true,
-    landmarks: true,
-  },
-  // The fork starts inside the trunk and is thinner than the trunk where it leaves it, so
-  // the join reads as one piece of wood.
-  {
-    p: [
-      [-1.45, 6.7, -1.05],
-      [-2.08, 7.14, -1.17],
-      [-2.17, 7.85, -1.15],
-      [-2.64, 8.43, -1.08],
-    ],
-    r: 0.15,
-    t: 0.017,
-  },
-  {
-    p: [
-      [2.71, 1.36, -0.37],
-      [3.15, 0.95, -0.6],
-      [4.16, 0.36, -0.92],
-      [4.84, 0.17, -0.7],
-    ],
-    r: 0.33,
-    t: 0.012,
-  },
-  {
-    p: [
-      [2.05, 2.75, -0.5],
-      [2.75, 3.15, 0.15],
-      [3.45, 3.4, 0.85],
-      [4.0, 3.7, 1.4],
-    ],
-    r: 0.3,
-    t: 0.03,
-    obstacle: true,
-  },
-  {
-    p: [
-      [0.3, 5.03, -0.82],
-      [-0.23, 5.59, -0.31],
-      [-0.59, 5.76, -0.18],
-    ],
-    r: 0.21,
-    t: 0.012,
-  },
-  {
-    p: [
-      [2.9, 0.84, -0.3],
-      [1.95, 0.48, -0.06],
-      [1.46, 0.14, 0.39],
-      [0.74, 0.13, 0.55],
-    ],
-    r: 0.35,
-    t: 0.02,
-  },
-  {
-    p: [
-      [2.34, 2.12, -0.38],
-      [3.2, 2.58, -1.4],
-      [3.55, 3.14, -1.67],
-    ],
-    r: 0.25,
-    t: 0.022,
-  },
-];
+// Upright cut driftwood with an irregular waist, a slight lean and small weathered
+// branch stubs. Roots flare into the carpet rather than reaching across the sand path.
+const BRANCHES = TRUNKS.flatMap((trunk, i) => {
+  const { x, z, radius: r, top, lean, bend } = trunk;
+  const base = groundHeight(x, z) - 0.14;
+  const h = top - base;
+  const trunkPoints = [
+    [x, base, z],
+    [x + bend, base + h * 0.16, z - bend * 0.5],
+    [x - bend * 0.6 + lean * 0.5, base + h * 0.55, z + bend],
+    [x + lean, top, z - bend * 0.4],
+  ];
+  const branches = [{ p: trunkPoints, r, t: r * (0.74 + (i % 3) * 0.055),
+    trunk: true, obstacle: true, landmarks: i < 8 }];
+  if (i < 8) {
+    const side = i % 2 ? -1 : 1;
+    const y = base + h * (0.29 + (i % 4) * 0.115);
+    branches.push({
+      p: [[x, y - r * 0.4, z], [x + side * r * 0.75, y, z + r * 0.42],
+        [x + side * r * 1.38, y + r * 0.45, z + r * 0.58]],
+      r: r * 0.46, t: r * 0.21, obstacle: true,
+    });
+    for (const side of [-1, 1]) {
+      const rx = x + side * r * 1.9, rz = z - r * 0.7;
+      branches.push({ p: [[x, base + r, z], [x + side * r * 0.8, base + r * 0.2, z - r * 0.3],
+        [rx, groundHeight(rx, rz) - 0.10, rz]], r: r * 0.5, t: r * 0.07 });
+    }
+  }
+  const tone = [1.12, 0.60, 1.14, 0.94, 0.85, 1.06, 0.72, 0.80][i % 8];
+  for (const branch of branches) { branch.tone = tone; branch.trunkIndex = i; }
+  return branches;
+});
 
 function mossCoverage(p, n, shelter, bias = 0) {
   let colony = 0;
@@ -205,7 +131,7 @@ const mossGLSL = /* glsl */ `
       f.z);
   }
 `;
-function mossLayer(material, film, turf) {
+function mossLayer(material, film, turf, preserveSurface = false) {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.mossFilm = { value: new THREE.Color(film) };
     shader.uniforms.mossTurf = { value: new THREE.Color(turf) };
@@ -223,7 +149,8 @@ function mossLayer(material, film, turf) {
         #include <color_fragment>
         vec3 mossFuzz = vec3(0.0);
         if (vMoss > 0.02) {
-          float mossFine = mossNoise(vWaterPosition * 9.0) * 0.6 + mossNoise(vWaterPosition * 27.0) * 0.4;
+          float mossFine = mossNoise(vWaterPosition * ${preserveSurface ? "18.0" : "9.0"}) * 0.6
+                         + mossNoise(vWaterPosition * ${preserveSurface ? "62.0" : "27.0"}) * 0.4;
           gMoss = smoothstep(0.07, 0.5, vMoss + (mossFine - 0.5) * 0.45);
           gMossColor = mix(mossFilm, mossTurf, smoothstep(0.15, 0.85, vMoss)) * (0.6 + 0.8 * mossFine);
           // Growth lies in the same shade as the surface it grows on: the pit of a stone,
@@ -231,20 +158,27 @@ function mossLayer(material, film, turf) {
           #ifdef USE_COLOR
             gMossColor *= vColor;
           #endif
-          diffuseColor.rgb = mix(diffuseColor.rgb, gMossColor, gMoss);
+          ${preserveSurface ? `
+          // A thin, broken film stains the underlying grain instead of painting
+          // it over. Actual fronds supply the thicker moss above this surface.
+          vec3 filmedSurface = diffuseColor.rgb * vec3(0.54, 0.74, 0.29) + gMossColor * 0.45;
+          diffuseColor.rgb = mix(diffuseColor.rgb, filmedSurface, gMoss * 0.86);
+          ` : "diffuseColor.rgb = mix(diffuseColor.rgb, gMossColor, gMoss);"}
           mossFuzz = vec3(mossFine - 0.5, mossNoise(vWaterPosition * 31.0 + 7.0) - 0.5, fract(mossFine * 7.0) - 0.5);
         }
       `,
       )
       .replace(
         "#include <roughnessmap_fragment>",
-        "#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 1.0, gMoss);",
+        `#include <roughnessmap_fragment>
+        ${preserveSurface ? "roughnessFactor = clamp(0.28 + roughnessFactor * 0.68, 0.48, 0.95);" : ""}
+        roughnessFactor = mix(roughnessFactor, ${preserveSurface ? "0.96" : "1.0"}, gMoss);`,
       )
       .replace(
         "#include <normal_fragment_maps>",
         /* glsl */ `
         #include <normal_fragment_maps>
-        normal = normalize(normal + gMoss * 0.5 * mossFuzz);
+        normal = normalize(normal + gMoss * ${preserveSurface ? "0.14" : "0.5"} * mossFuzz);
       `,
       )
       .replace(
@@ -252,24 +186,28 @@ function mossLayer(material, film, turf) {
         /* glsl */ `
         #include <lights_fragment_end>
         float grazing = pow(1.0 - saturate(dot(normal, geometryViewDir)), 3.0);
-        reflectedLight.indirectDiffuse += gMoss * grazing * gMossColor * 0.6;
+        reflectedLight.indirectDiffuse += gMoss * grazing * gMossColor * ${preserveSurface ? "0.3" : "0.6"};
       `,
       );
     waterLitShader(shader);
   };
-  material.customProgramCacheKey = () => "mossy-surface-v3";
+  material.customProgramCacheKey = () => `mossy-surface-v4-${preserveSurface}`;
   return material;
 }
 
 // A young film of algae is olive and thin; established turf is dark green. The film on
 // sand is browner (diatoms) than on stone and wood.
 async function surface(loader, name, repeat, color, film, turf = "#0b1e08") {
-  const [map, normalMap] = await Promise.all([
-    loader.loadAsync(`assets/${name}_diff.jpg`),
-    loader.loadAsync(`assets/${name}_nor_gl.jpg`),
+  const hardscape = name !== "sand_01";
+  // Keep colour detail at 4K, and use lossless 2K normals plus a shared AO /
+  // roughness texture. Only colour is sRGB; all surface measurements are linear.
+  const [map, normalMap, arm] = await Promise.all([
+    loader.loadAsync(`assets/${name}_diff${hardscape ? "_4k" : ""}.jpg`),
+    loader.loadAsync(`assets/${name}_nor_gl${hardscape ? "_2k.png" : ".jpg"}`),
+    hardscape ? loader.loadAsync(`assets/${name}_arm_2k.jpg`) : null,
   ]);
   map.colorSpace = THREE.SRGBColorSpace;
-  for (const texture of [map, normalMap]) {
+  for (const texture of [map, normalMap, arm].filter(Boolean)) {
     texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
     texture.repeat.set(...repeat);
     texture.anisotropy = 8;
@@ -278,6 +216,9 @@ async function surface(loader, name, repeat, color, film, turf = "#0b1e08") {
     new THREE.MeshStandardMaterial({
       map,
       normalMap,
+      roughnessMap: arm,
+      aoMap: arm,
+      aoMapIntensity: 0.45,
       color,
       roughness: 0.92,
       normalScale: new THREE.Vector2(0.65, 0.65),
@@ -285,6 +226,7 @@ async function surface(loader, name, repeat, color, film, turf = "#0b1e08") {
     }),
     film,
     turf,
+    hardscape,
   );
 }
 
@@ -365,23 +307,27 @@ function rockGeometry(seed, detail = 112) {
   return geometry;
 }
 
-function branchGeometry(points, baseRadius, tipRadius, seed) {
+function branchGeometry(points, baseRadius, tipRadius, seed, trunk = false, tone = 1, detail = 1) {
   const curve = new THREE.CatmullRomCurve3(points);
   const length = curve.getLength();
-  const rows = Math.ceil(length * 30),
-    cols = 96;
+  const rows = Math.max(8, Math.ceil(length * (trunk ? 18 : 15) * detail)),
+    cols = Math.max(10, Math.round((trunk ? 56 : 24) * detail));
   const positions = [],
     uv = [],
     indices = [],
     colors = [];
   const frames = curve.computeFrenetFrames(rows, false);
   const splitRandom = randomGenerator(Math.round(seed * 1000) + 51781);
-  const splits = Array.from({ length: 14 }, () => ({
+  const splits = Array.from({ length: trunk ? 9 : 5 }, () => ({
     a: splitRandom() * Math.PI * 2,
     t: splitRandom(),
     width: 0.025 + splitRandom() * 0.09,
     length: 0.025 + splitRandom() * 0.15,
-    depth: 0.08 + splitRandom() * 0.32,
+    depth: 0.035 + splitRandom() * 0.12,
+  }));
+  const knots = Array.from({ length: trunk ? 3 : 0 }, (_, i) => ({
+    a: Math.PI + (splitRandom() - 0.5) * 2.4, t: 0.18 + i * 0.28 + splitRandom() * 0.08,
+    width: 0.28 + splitRandom() * 0.18, length: 0.035 + splitRandom() * 0.018,
   }));
   for (let i = 0; i <= rows; i++) {
     const t = i / rows,
@@ -394,14 +340,21 @@ function branchGeometry(points, baseRadius, tipRadius, seed) {
     for (let j = 0; j <= cols; j++) {
       const a = (j / cols) * Math.PI * 2;
       const ridges =
-        0.077 * Math.sin(a * 9 + t * 12 + seed) +
-        0.042 * Math.sin(a * 17 - t * 7) +
-        0.022 * Math.sin(a * 31 + t * 33);
+        0.029 * Math.sin(a * 7 + t * 3 + seed) +
+        0.016 * Math.sin(a * 17 - t * 7) +
+        0.009 * Math.sin(a * 31 + t * 17);
       const weather = noise(Math.cos(a) * 5 + seed, t * 30, Math.sin(a) * 5);
       const channel =
         Math.pow(0.5 + 0.5 * Math.sin(a * 13 + Math.sin(t * 15) * 0.25), 10) *
-        0.07;
-      const knot = 1 + 0.15 * Math.exp(-(((t - 0.47) / 0.08) ** 2));
+        0.026;
+      let hollow = 0, rim = 0;
+      for (const knot of knots) {
+        const angle = Math.atan2(Math.sin(a - knot.a), Math.cos(a - knot.a));
+        const d = Math.hypot(angle / knot.width, (t - knot.t) / knot.length);
+        hollow += 0.25 * Math.exp(-d * d * 3.2);
+        rim += 0.11 * Math.exp(-(((d - 0.92) / 0.28) ** 2));
+      }
+      const flare = trunk ? 1 + 0.18 * Math.exp(-t * 22) : 1;
       let splitDepth = 0;
       for (const split of splits) {
         const angle = a - split.a - 0.07 * Math.sin(t * 37 + seed);
@@ -414,23 +367,27 @@ function branchGeometry(points, baseRadius, tipRadius, seed) {
       }
       const r =
         radius *
-        knot *
+        flare *
         (1 +
           ridges +
-          (weather - 0.5) * 0.3 -
+          (weather - 0.5) * 0.08 + rim - hollow -
           channel -
-          Math.min(0.65, splitDepth));
+          Math.min(0.25, splitDepth));
       const radial = frames.normals[i]
         .clone()
         .multiplyScalar(Math.cos(a))
         .addScaledVector(frames.binormals[i], Math.sin(a));
       const v = p.clone().addScaledVector(radial, r);
       positions.push(v.x, v.y, v.z);
-      uv.push(j / cols, length * t * 0.32);
-      const tint =
-        (0.7 + weather * 0.27 + ridges * 0.7 - channel) *
-        (1 - Math.min(0.6, splitDepth * 1.5));
-      colors.push(tint, tint * 0.97, tint * 0.92);
+      // Grain has a consistent size on thick trunks and narrow branch stubs.
+      uv.push(j / cols * TAU * baseRadius * 0.24 + seed * 0.137,
+        length * t * 0.22 + seed * 0.0719);
+      const weathered = noise(Math.cos(a) * 2.7 + seed, t * 4.2, Math.sin(a) * 2.7);
+      const darkBark = smoothstep(0.38, 0.65, weathered);
+      const tint = tone * (0.94 + weather * 0.10 - darkBark * 0.19 + rim * 0.35) *
+        (1 - Math.min(0.52, splitDepth * 1.2 + hollow * 1.35));
+      const warmth = 0.025 * Math.sin(seed * 1.7);
+      colors.push(tint, tint * (0.92 + warmth), tint * (0.82 + warmth));
       if (i < rows && j < cols) {
         const k = i * (cols + 1) + j;
         indices.push(k, k + 1, k + cols + 1, k + 1, k + cols + 2, k + cols + 1);
@@ -458,7 +415,38 @@ function branchGeometry(points, baseRadius, tipRadius, seed) {
   geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
+  geometry.userData.rings = { rows, cols };
   return geometry;
+}
+
+// Static pieces share a material and one draw call. Their world-space positions,
+// normals and moss coverage are retained, including the distinct grain of each trunk.
+function addSurfaceBatch(scene, geometries, material, name) {
+  const merged = new THREE.BufferGeometry();
+  const vertices = geometries.reduce((sum, g) => sum + g.attributes.position.count, 0);
+  for (const [key, attribute] of Object.entries(geometries[0].attributes)) {
+    const array = new Float32Array(vertices * attribute.itemSize);
+    let offset = 0;
+    for (const geometry of geometries) {
+      array.set(geometry.attributes[key].array, offset);
+      offset += geometry.attributes[key].array.length;
+    }
+    merged.setAttribute(key, new THREE.BufferAttribute(array, attribute.itemSize));
+  }
+  const indices = new Uint32Array(geometries.reduce((sum, g) => sum + g.index.count, 0));
+  let indexOffset = 0, vertexOffset = 0;
+  for (const geometry of geometries) {
+    for (const index of geometry.index.array) indices[indexOffset++] = index + vertexOffset;
+    vertexOffset += geometry.attributes.position.count;
+    geometry.dispose();
+  }
+  merged.setIndex(new THREE.BufferAttribute(indices, 1));
+  merged.computeBoundingSphere();
+  const mesh = new THREE.Mesh(merged, material);
+  mesh.name = name;
+  mesh.castShadow = mesh.receiveShadow = true;
+  scene.add(mesh);
+  return mesh;
 }
 
 function createContactShadows(scene, rocks) {
@@ -480,15 +468,17 @@ function createContactShadows(scene, rocks) {
     polygonOffset: true,
     polygonOffsetFactor: -1,
   });
-  for (const rock of rocks) {
-    const plane = new THREE.Mesh(
-      new THREE.PlaneGeometry(rock.rx * 3.5, rock.rz * 3.5),
-      material,
-    );
-    plane.rotation.x = -Math.PI / 2;
-    plane.position.set(rock.x, groundHeight(rock.x, rock.z) + 0.008, rock.z);
-    scene.add(plane);
-  }
+  const shadows = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), material, rocks.length);
+  shadows.name = "Stone contact shadows";
+  const transform = new THREE.Object3D();
+  rocks.forEach((rock, i) => {
+    transform.rotation.x = -Math.PI / 2;
+    transform.scale.set(rock.rx * 3.5, rock.rz * 3.5, 1);
+    transform.position.set(rock.x, groundHeight(rock.x, rock.z) + 0.008, rock.z);
+    transform.updateMatrix();
+    shadows.setMatrixAt(i, transform.matrix);
+  });
+  scene.add(shadows);
 }
 
 // One moss frond: a short curved stem carrying pairs of tiny leaflets. Instances differ in
@@ -552,6 +542,7 @@ function frondGeometry() {
 // Fronds stand where the turf is dense. They grow up toward the light more than straight
 // off the surface, lean at random, and are picked by weighted sampling so the count is fixed.
 function plantFronds(scene, groups) {
+  groups = groups.filter(group => group.samples.length > 0);
   const total = groups.reduce((sum, group) => sum + group.count, 0);
   const material = new THREE.MeshStandardMaterial({
     vertexColors: true,
@@ -592,20 +583,25 @@ function plantFronds(scene, groups) {
   scene.add(fronds);
 }
 
-export async function createEnvironment(scene) {
+export async function createEnvironment(scene, { anisotropy = 8 } = {}) {
   const loader = new THREE.TextureLoader();
   const [rockMaterial, woodMaterial, sandMaterial] = await Promise.all([
-    surface(loader, "rock_boulder_dry", [1.8, 1.4], 0x62665d, "#2e4315"),
-    surface(loader, "rough_wood", [2.1, 1.4], 0xc3ad8e, "#334a16"),
-    surface(loader, "sand_01", [10, 6], 0xf4e5c8, "#5a5a26", "#23401a"),
+    surface(loader, "rock_boulder_dry", [1, 1], 0x62665b, "#2e4315"),
+    surface(loader, "rough_wood", [1, 1], 0xc9b49b, "#334a16"),
+    surface(loader, "sand_01", [12, 8], 0xe6c98a, "#5a5a26", "#23401a"),
   ]);
-  rockMaterial.normalScale.set(0.85, 0.85);
-  woodMaterial.roughness = 0.86;
-  woodMaterial.normalScale.set(0.8, 0.8);
+  for (const material of [rockMaterial, woodMaterial, sandMaterial]) {
+    material.map.anisotropy = anisotropy;
+    material.normalMap.anisotropy = anisotropy;
+    if (material.roughnessMap) material.roughnessMap.anisotropy = anisotropy;
+  }
+  projectStoneMaterial(rockMaterial);
+  rockMaterial.normalScale.set(0.7, 0.7);
+  woodMaterial.roughness = 0.94;
+  woodMaterial.normalScale.set(0.72, 0.72);
   sandMaterial.normalScale.set(0.32, 0.32);
 
   const rocks = ROCKS;
-  const woodBase = vec(...BRANCHES[0].p[0]);
   // How sheltered the sand is from the flow: against the stones and the foot of the wood,
   // and under the back planting.
   const shelterAt = (x, z) => {
@@ -615,10 +611,9 @@ export async function createEnvironment(scene) {
       const gap = Math.hypot(x - r.x, z - r.z) - size;
       shelter = Math.max(shelter, smoothstep(0.6 + 0.8 * size, 0.1, gap));
     }
-    shelter = Math.max(
-      shelter,
-      smoothstep(2.2, 0.3, Math.hypot(x - woodBase.x, z - woodBase.z)),
-    );
+    for (const trunk of TRUNKS)
+      shelter = Math.max(shelter, smoothstep(trunk.radius + 0.9, trunk.radius,
+        Math.hypot(x - trunk.x, z - trunk.z)));
     return Math.max(shelter, 0.55 * smoothstep(-1.4, -3.2, z));
   };
   // Algae films the sheltered sand; the open channel is swept nearly clean.
@@ -640,7 +635,7 @@ export async function createEnvironment(scene) {
     }
   };
 
-  const ground = new THREE.PlaneGeometry(24, 18, 200, 140);
+  const ground = new THREE.PlaneGeometry(30, 18, 220, 140);
   ground.rotateX(-Math.PI / 2);
   const position = ground.attributes.position;
   const groundColors = [];
@@ -648,11 +643,12 @@ export async function createEnvironment(scene) {
     const x = position.getX(i),
       z = position.getZ(i);
     position.setY(i, groundHeight(x, z) + 0.008 * noise(x * 40, 0, z * 40));
-    // Sand darkens under the canopy toward the back; the open channel stays lit further in.
-    const lit = THREE.MathUtils.smoothstep(z, -4.4, 0.6);
-    const litChannel = THREE.MathUtils.smoothstep(z, -6.0, -1.2);
-    const shade = 0.04 + 0.96 * Math.max(lit, litChannel * channel(x, z));
-    groundColors.push(shade, shade, shade);
+    // Warm fine gravel in the path, dark planted soil on the banks. The distinction
+    // follows the same continuous mask as the carpet, including its distant bends.
+    const open = smoothstep(0.15, 0.68, channel(x, z));
+    const shade = 0.70 + 0.30 * smoothstep(-6, 3, z);
+    groundColors.push(shade * (0.075 + 0.925 * open),
+      shade * (0.080 + 0.920 * open), shade * (0.044 + 0.956 * open));
   }
   ground.setAttribute(
     "color",
@@ -673,26 +669,17 @@ export async function createEnvironment(scene) {
   const obstacles = [];
   const landmarks = [];
   const rockSamples = [];
-  // The pale stone is a lighter piece of the same rock, not a second kind of stone.
-  const pale = mossLayer(rockMaterial.clone(), "#2e4315", "#0b1e08");
-  pale.color.set(0x8f8b7c);
+  const rockSurfaces = [];
   rocks.forEach((r, i) => {
-    const geometry = rockGeometry(i * 2.63);
-    // The stone map was tuned on a stone about a unit across; a bigger stone repeats it
-    // more, so its grain stays as fine as a small stone's instead of stretching.
-    const grain = Math.max(0.8, (r.rx + r.ry + r.rz) / 3.3);
-    const uv = geometry.attributes.uv;
-    for (let k = 0; k < uv.count; k++)
-      uv.setXY(k, uv.getX(k) * grain, uv.getY(k) * grain);
-    const mesh = new THREE.Mesh(geometry, r.pale ? pale : rockMaterial);
+    const geometry = rockGeometry(i * 2.63, r.rx > 0.8 ? 72 : 48);
+    // The material projects all its maps in world space after this transform.
+    const mesh = new THREE.Mesh(geometry, rockMaterial);
     mesh.scale.set(r.rx, r.ry, r.rz);
     mesh.position.set(r.x, rockCenterY(r), r.z);
     // The lean is applied after the stone's turn, about the tank's front axis, so the
     // stones share a direction however each one is turned.
     mesh.rotation.set(range(-0.1, 0.1), range(-3, 3), r.lean, "ZYX");
     mesh.updateMatrix();
-    mesh.castShadow = mesh.receiveShadow = true;
-    scene.add(mesh);
     // Crevices shelter spores: the darker the stone (its pits), the more growth.
     const tints = mesh.geometry.attributes.color;
     rockSamples.push(
@@ -705,8 +692,9 @@ export async function createEnvironment(scene) {
         0.1,
       ),
     );
+    rockSurfaces.push(geometry.applyMatrix4(mesh.matrix));
     const radius = Math.max(r.rx, r.ry, r.rz) * 0.82;
-    obstacles.push({ center: mesh.position.clone(), radius });
+    obstacles.push({ center: mesh.position.clone(), radius, kind: 'rock', surfaceId: i });
     if (radius > 0.5)
       landmarks.push({
         kind: "rock",
@@ -714,6 +702,9 @@ export async function createEnvironment(scene) {
         obstacle: obstacles.length - 1,
       });
   });
+  const stones = addSurfaceBatch(scene, rockSurfaces, rockMaterial, "Path stones");
+  const support = createSurfaceSupport([stones.geometry], groundHeight);
+  support.woods = [];
   createContactShadows(scene, rocks);
 
   const smallRockGeometry = rockGeometry(37, 12);
@@ -769,25 +760,29 @@ export async function createEnvironment(scene) {
   scene.add(grit);
 
   const woodSamples = [];
+  const woodSurfaces = [];
   BRANCHES.forEach((branch, i) => {
     const points = branch.p.map((p) => vec(...p));
-    const geometry = branchGeometry(points, branch.r, branch.t, i * 5.7);
+    const geometry = branchGeometry(points, branch.r, branch.t, i * 5.7, branch.trunk, branch.tone);
+    if (branch.trunk) support.woods.push(createWoodSurface(geometry, branch.trunkIndex));
     const mesh = new THREE.Mesh(geometry, woodMaterial);
-    mesh.castShadow = mesh.receiveShadow = true;
-    scene.add(mesh);
+    woodSurfaces.push(geometry);
     // Splits and channels in the bark hold moss; the bark tint records them.
     const tints = geometry.attributes.color;
     woodSamples.push(
-      ...growMoss(geometry, mesh.matrix, (p, index) => 0.7 * (1 - tints.getX(index)), 0.04),
+      ...growMoss(geometry, mesh.matrix, (p, index) =>
+        0.7 * (1 - tints.getX(index)) * smoothstep(2.2, 0.4, p.y - groundHeight(p.x, p.z)), -0.04)
+        .filter(sample => sample.position.y - groundHeight(sample.position.x, sample.position.z) < 1.6),
     );
     if (branch.obstacle) {
       const curve = new THREE.CatmullRomCurve3(points);
-      const steps = Math.ceil(curve.getLength() / 0.75);
+      const steps = Math.ceil(curve.getLength() / Math.min(0.48, branch.t * 1.25));
       for (let k = 0; k <= steps; k++) {
         const t = k / steps;
         const radius =
           THREE.MathUtils.lerp(branch.r, branch.t, t) * 0.87 + 0.12;
-        obstacles.push({ center: curve.getPoint(t), radius });
+        obstacles.push({ center: curve.getPoint(t), radius, kind: 'wood',
+          surfaceId: branch.trunkIndex, branch: !branch.trunk });
         if (branch.landmarks && t > 0.1 && t < 0.8 && k % 3 === 0)
           landmarks.push({
             kind: "wood",
@@ -797,14 +792,25 @@ export async function createEnvironment(scene) {
       }
     }
   });
-  // Fronds stand thick on the tied-on wood clump; on stone and sand the growth is a short
-  // turf, so the fronds there are few and small.
+  addSurfaceBatch(scene, woodSurfaces, woodMaterial, "Forest driftwood");
+  const farWood=[],rearRandom=randomGenerator(29019);
+  for(let layer=0;layer<3;layer++)for(let i=0;i<12;i++) {
+    const x=-16+i*2.9+(rearRandom()-.5)*1.6, z=-8.8-layer*3.0;
+    const radius=(.25+rearRandom()*.23)*(1-layer*.12),lean=(rearRandom()-.5)*1.6;
+    const points=[vec(x,.6,z),vec(x+lean*.25,4.2,z+.15),vec(x+lean,12.2,z-.2)];
+    farWood.push(branchGeometry(points,radius,radius*.57,901+layer*47+i*8.7,true,.68+rearRandom()*.2,.32));
+  }
+  const rearMaterial=woodMaterial.clone();
+  rearMaterial.onBeforeCompile=woodMaterial.onBeforeCompile;
+  for(const g of farWood)g.setAttribute('moss',new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count),1));
+  const rearTrees=addSurfaceBatch(scene,farWood,distanceMaterial(rearMaterial,'distant-driftwood-v1'),'Three layers of distant slender trunks');
+  rearTrees.castShadow=rearTrees.receiveShadow=false;
   plantFronds(scene, [
-    { samples: woodSamples, count: 1600 },
-    { samples: rockSamples, count: 800, scale: 0.5 },
+    { samples: woodSamples, count: 900, scale: 0.65 },
+    { samples: rockSamples, count: 1400, scale: 0.55 },
     { samples: sandSamples, count: 80, scale: 0.6 },
   ]);
-  return { obstacles, landmarks };
+  return { obstacles, landmarks, support };
 }
 
 // Suspended matter that reveals the water: flecks of detritus carried by the current, and

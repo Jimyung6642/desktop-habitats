@@ -32,7 +32,7 @@ if (process.argv[2] === '--sample') {
   };
   const before=sample('reference'),after=sample('balanced');
   assert.equal(after.stats.backgroundCandidates,before.stats.backgroundCandidates);
-  assert(Math.abs(after.stats.backgroundKept / after.stats.backgroundCandidates - 0.7)<0.001);
+  assert.equal(after.stats.backgroundKept, Math.floor(after.stats.backgroundCandidates * 0.7 + 1e-9));
   assert(after.stats.backgroundTriangles < before.stats.backgroundTriangles * 0.24);
   assert.equal(before.foregroundHash,after.foregroundHash,'Foreground geometry must be unchanged');
   assert.equal(before.nextRandom,after.nextRandom,'Subsequent procedural random state must be unchanged');

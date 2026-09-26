@@ -1,18 +1,13 @@
 import * as THREE from "three";
 import { waterLitShader } from "./water.js";
 
-// Bloodfin tetra, Aphyocharax anisitsi — the species behind the reference photograph:
-// a small silvery characin whose flank carries a blue-green guanine sheen and whose
-// caudal, anal, dorsal, pelvic and adipose fins are blood red at the base. Every
-// dimension below is derived from the published morphometrics as a fraction of
-// standard length (snout tip to hypural plate) so the whole fish stays in proportion
-// if one measure is retuned:
-//
-//   standard length 0.645 (a 40 mm adult)   greatest depth 29% SL, at the dorsal origin
-//   head 27% SL, eye 39% of head length     greatest width 12.6% SL (width/depth 0.43)
-//   dorsal origin 52% SL, base 11% SL       anal origin 60% SL, base 26% SL
-//   pelvic origin 46% SL                    adipose fin 84% SL
-//   caudal peduncle depth 11% SL            caudal lobes 27% SL, deeply forked
+// Neon tetra, Paracheirodon innesi. The blue reflector runs from the eye toward the
+// adipose fin; red pigment is confined to the posterior body. The front belly stays
+// silver and the fins are hyaline. Shape and coloration are artist-tuned from live
+// fish photographs, not a morphometric or optical measurement of this species.
+// Reference: aquariumcoop.com/blogs/aquarium/neon-tetras-and-cardinal-tetras
+// The procedural surface keeps scale detail at any rendering resolution, without
+// stretching a photograph over a swimming mesh.
 //
 // Forward axis is +X: the snout is at x = 0.35, the caudal lobes end near x = -0.44,
 // the spine runs along y = 0, z = 0 and the geometry is symmetric in z. Part ids
@@ -43,18 +38,18 @@ const STATIONS = [
   [0.248, 0.0672, -0.069, 0.0385, 2.25, 2.4],
   [0.22, 0.0722, -0.077, 0.0405, 2.15, 2.4],
   [0.19, 0.0762, -0.085, 0.0408, 2.05, 2.35],
-  [0.166, 0.0782, -0.0908, 0.04, 2.0, 2.3],
-  [0.13, 0.0808, -0.0958, 0.0382, 2.1, 2.25],
-  [0.09, 0.0832, -0.1, 0.036, 2.05, 2.2],
-  [0.045, 0.0848, -0.1022, 0.0342, 2.0, 2.15],
-  [0.01, 0.0852, -0.1028, 0.0324, 1.95, 2.1],
+  [0.166, 0.0782, -0.094, 0.041, 2.0, 2.3],
+  [0.13, 0.0808, -0.103, 0.040, 2.1, 2.3],
+  [0.09, 0.0832, -0.108, 0.038, 2.05, 2.25],
+  [0.045, 0.0848, -0.110, 0.0355, 2.0, 2.2],
+  [0.01, 0.0852, -0.107, 0.033, 1.95, 2.15],
   [-0.04, 0.0812, -0.0998, 0.0292, 1.88, 1.9],
   [-0.09, 0.073, -0.09, 0.0252, 1.78, 1.78],
   [-0.14, 0.062, -0.0748, 0.0208, 1.66, 1.66],
-  [-0.19, 0.049, -0.057, 0.016, 1.52, 1.54],
-  [-0.235, 0.04, -0.043, 0.0118, 1.46, 1.48],
-  [-0.27, 0.0358, -0.0358, 0.0088, 1.42, 1.42],
-  [HYPURAL_X, 0.0336, -0.033, 0.005, 1.4, 1.4],
+  [-0.19, 0.044, -0.051, 0.016, 1.65, 1.65],
+  [-0.235, 0.028, -0.030, 0.0105, 1.65, 1.65],
+  [-0.27, 0.019, -0.020, 0.0078, 1.65, 1.65],
+  [HYPURAL_X, 0.017, -0.017, 0.0045, 1.65, 1.65],
 ];
 const SECTION_WAIST = 2.15;
 
@@ -77,32 +72,31 @@ const ROW_DENSITY = [
 const BODY_ROWS = 84;
 const BODY_COLUMNS = 62;
 
-// The eyeball is a flattened lens seated in the orbit: 39% of head length across but
-// only a fifth of that thick, as a small characin's eye is. The body surface takes on
-// the eyeball's shape inside the orbit, so the eye can never part from the head.
+// A shallow lens seated in the orbit. The body follows the same surface so the iris
+// and pupil stay embedded when the head turns.
 const EYE = {
-  x: 0.272,
+  x: 0.282,
   y: 0.012,
-  radiusX: 0.0335,
-  radiusY: 0.0325,
-  bulge: 0.0126,
-  inset: 0.0228,
-  pupil: 0.60,
-  iris: 0.93,
+  radiusX: 0.0316,
+  radiusY: 0.0308,
+  bulge: 0.009,
+  inset: 0.027,
+  pupil: 0.66,
+  iris: 0.94,
   rim: 0.985,
 };
 
 // Posterior margin of the gill cover: bowed back at mid-height, sloping forward at the
 // nape and the isthmus. The opercle's free edge overlaps the shoulder, so the surface
 // carries a raised bony edge and then a groove.
-const OPERCLE = { x: 0.196, bow: 0.03, y: -0.004, span: 0.078 };
+const OPERCLE = { x: 0.205, bow: 0.026, y: -0.004, span: 0.078 };
 
 // Terminal, slightly upturned mouth: the cleft rises from the corner to the snout tip.
 const MOUTH = { cornerX: 0.322, cornerY: -0.0175, tipX: 0.3495, tipY: -0.0035 };
 
-// Fin ray counts from the species' fin formulae: dorsal ii,9; anal iii,20;
-// pectoral i,11; pelvic i,7; caudal 19 principal rays. The adipose fin has none.
-const FIN_RAYS = { 1: 19, 2: 11, 3: 23, 4: 12, 5: 12, 6: 8, 12: 0 };
+// Ray fans give the clear membrane structure. Counts are a rendering approximation;
+// the small adipose fin has no rays.
+const FIN_RAYS = { 1: 19, 2: 10, 3: 19, 4: 11, 5: 11, 6: 8, 12: 0 };
 const MEMBRANE_STEPS = 8;
 const RAY_SUBDIVISIONS = 4;
 
@@ -110,23 +104,16 @@ const RAY_SUBDIVISIONS = 4;
 // the ventral. Visible only when a scale covers more than a pixel.
 const SCALE_ROWS = [34, 11];
 
-// Light transport through the body wall. The path is the width of the section at the
-// fragment, which the rest position already carries in z. One model unit is 62 mm, so
-// these are the effective attenuation coefficients of pale fish muscle — 0.55, 1.35 and
-// 1.75 per mm: blood and myoglobin take green and blue out several times faster than
-// red, which is why a small fish lit from behind glows pink-orange where it is thin.
+// Approximate light transport through the body wall, using the section width in z.
+// These artistic coefficients keep thin tissue warmer than the opaque body cavity.
 const MUSCLE_ABSORPTION = [34, 84, 109];
-// Scattering, 2.6 per mm. It decides how much of what survives the path comes back out
-// towards the eye rather than carrying straight on: a millimetre of muscle diffuses
-// almost everything, a fin membrane hardly redirects the light at all.
+// Scattered light emerges broadly from muscle but only weakly from a fin membrane.
 const TISSUE_SCATTER = 160;
 // Skin, scales and the muscle immediately under them: the shortest path anywhere on the
 // body, and what keeps the ridges from reading as a white rim rather than warm tissue.
 const MUSCLE_FLOOR = 0.012;
-// A fin membrane is a fraction of a millimetre of collagen. Its red is carotenoid in the
-// rays' sheath, which absorbs green and blue almost completely at full strength; the rays
-// themselves are bone splints, so they stand in a backlit fin as dark striations however
-// bright they look by reflection.
+// Clear fin membrane and the trace of red tissue at the caudal insertion. Denser rays
+// stand out as fine striations when the membrane is backlit.
 const MEMBRANE_THICKNESS = 0.004;
 const FIN_PIGMENT = [0.25, 2.0, 2.6];
 const FIN_RAY_DENSITY = 0.5;
@@ -138,14 +125,41 @@ const MYOMERE_PITCH = 52;
 // the surface normal (Barré-Brisebois). The ambient share is the same transport applied
 // to the light that arrives from every direction at once.
 const THROUGH = {
-  gain: 2.0,
+  gain: 1.1,
   wrap: 0.35,
   sharpness: 2.0,
   distortion: 0.22,
-  ambient: 0.55,
+  ambient: 0.22,
 };
 
 const glsl = (value) => value.toFixed(5);
+
+// Rest-space deformation shared by the visible fish and its shadow. The gill cover
+// lifts slightly during ventilation; the lower jaw opens further during a food strike.
+// aLife is driven by simulation time, so these movements stop with the aquarium.
+export const anatomyMotionGLSL = /* glsl */ `
+  vec3 ventilate(vec3 p, inout vec3 n) {
+    if (aPart < 0.5) {
+      float gy = (p.y - ${glsl(OPERCLE.y)}) / ${glsl(OPERCLE.span)};
+      float margin = p.x - (${glsl(OPERCLE.x)} - ${glsl(OPERCLE.bow)} * (1.0 - gy * gy));
+      float pulse = pow(0.5 + 0.5 * sin(aLife.x), 2.0);
+      float lift = 0.0018 * pulse * exp(-pow(margin / 0.019, 2.0) - gy * gy * 1.7);
+      float side = sign(p.z);
+      p.z += side * lift;
+      n.x -= n.z * side * lift * (-2.0 * margin / (0.019 * 0.019));
+    }
+    if (aPart < 0.5 || (aPart > 8.5 && aPart < 9.5) || (aPart > 10.5 && aPart < 11.5)) {
+      float tip = smoothstep(${glsl(MOUTH.cornerX - 0.012)}, ${glsl(SNOUT_X)}, p.x);
+      float cleft = mix(${glsl(MOUTH.cornerY)}, ${glsl(MOUTH.tipY)},
+        smoothstep(${glsl(MOUTH.cornerX)}, ${glsl(MOUTH.tipX)}, p.x));
+      float lower = 1.0 - smoothstep(cleft - 0.004, cleft + 0.001, p.y);
+      float gape = 0.0011 * (0.5 + 0.5 * sin(aLife.x + 0.7)) + 0.012 * aLife.y;
+      p.y -= tip * lower * gape;
+      p.x += tip * aLife.y * 0.002;
+    }
+    return p;
+  }
+`;
 
 // Smooth interpolation through the station knots. Slopes are the neighbours' secant,
 // which keeps the profile C1 without the overshoot a uniform parameterisation adds
@@ -256,10 +270,10 @@ function sectionZ(x, v, section, y) {
     (x - EYE.x) / EYE.radiusX,
     (y - EYE.y) / EYE.radiusY,
   );
-  if (orbit < 1.3) {
+  if (orbit < 1.28) {
     const dome =
       EYE.inset + EYE.bulge * Math.sqrt(Math.max(0, 1 - orbit * orbit));
-    const weight = 1 - THREE.MathUtils.smoothstep(orbit, 0.92, 1.62);
+    const weight = 1 - THREE.MathUtils.smoothstep(orbit, 0.90, 1.28);
     z = THREE.MathUtils.lerp(z, dome, weight);
   }
   return Math.max(z, 0.0004);
@@ -495,8 +509,8 @@ function eyeCap(side, inner, outer, rings, segments, lift, rimLift) {
       const dx = Math.cos(angle) * f;
       const dy = Math.sin(angle) * f;
       const normal = new THREE.Vector3(
-        (dx * EYE.radiusX) / (EYE.bulge * EYE.bulge),
-        (dy * EYE.radiusY) / (EYE.bulge * EYE.bulge),
+        dx / EYE.radiusX,
+        dy / EYE.radiusY,
         (side * height) / EYE.bulge,
       ).normalize();
       positions.push(
@@ -662,11 +676,11 @@ export function makeAnatomy() {
     {
       part: 1,
       base: [
-        [-0.271, 0.032, 0],
-        [-0.286, 0.021, 0],
-        [-0.292, 0, 0],
-        [-0.286, -0.02, 0],
-        [-0.271, -0.031, 0],
+        [-0.278, 0.018, 0],
+        [-0.291, 0.012, 0],
+        [-0.296, 0, 0],
+        [-0.291, -0.012, 0],
+        [-0.278, -0.018, 0],
       ],
       tip: [
         [-0.302, 0.045, 0],
@@ -689,47 +703,46 @@ export function makeAnatomy() {
     membranes,
   );
 
-  // Dorsal fin at 52% SL: a short base, the apex over the third ray, the margin
-  // falling away concavely behind it.
+  // Swept-back dorsal fan, with a rounded leading edge and a delicate clear margin.
   finFan(
     {
       part: 2,
-      base: medianInsertion(0.015, -0.056, 4, true, 0.006),
+      base: medianInsertion(0.015, -0.095, 5, true, 0.006),
       tip: [
-        [0.022, 0.113, 0],
-        [0.012, 0.155, 0],
-        [-0.007, 0.176, 0],
-        [-0.025, 0.166, 0],
-        [-0.04, 0.147, 0],
-        [-0.051, 0.122, 0],
-        [-0.058, 0.098, 0],
+        [0.014, 0.105, 0],
+        [-0.018, 0.132, 0],
+        [-0.060, 0.158, 0],
+        [-0.112, 0.176, 0],
+        [-0.130, 0.168, 0],
+        [-0.125, 0.127, 0],
+        [-0.098, 0.089, 0],
       ],
       edge: 0.02,
     },
     membranes,
   );
 
-  // Anal fin: the long, low, falcate base that marks the genus.
+  // Clear anal fan, deepest toward its middle, following the taper of the abdomen.
   finFan(
     {
       part: 3,
-      base: medianInsertion(-0.04, -0.205, 6, false, 0.006),
+      base: medianInsertion(-0.012, -0.212, 6, false, 0.006),
       tip: [
-        [-0.036, -0.132, 0],
-        [-0.052, -0.162, 0],
-        [-0.073, -0.159, 0],
-        [-0.098, -0.146, 0],
-        [-0.128, -0.128, 0],
-        [-0.158, -0.106, 0],
-        [-0.185, -0.084, 0],
-        [-0.208, -0.07, 0],
+        [-0.010, -0.121, 0],
+        [-0.044, -0.155, 0],
+        [-0.085, -0.180, 0],
+        [-0.123, -0.187, 0],
+        [-0.143, -0.151, 0],
+        [-0.168, -0.111, 0],
+        [-0.192, -0.077, 0],
+        [-0.214, -0.063, 0],
       ],
       edge: 0.018,
     },
     membranes,
   );
 
-  // Adipose fin at 84% SL: a small rayless flap of skin, red in this species.
+  // The adipose fin is a small, nearly colourless flap behind the dorsal fan.
   finFan(
     {
       part: 12,
@@ -834,6 +847,7 @@ export function applySkin(shader) {
       varying vec3 vSkinPoint;
       varying vec2 vFishUV;
       varying float vFishPart;
+      varying vec3 vFishAppearance;
 
       // What the tissue under this fragment passes: set once the anatomy is known, read
       // back by every light below.
@@ -892,6 +906,32 @@ export function applySkin(shader) {
         float k = clamp((x - ${glsl(MOUTH.cornerX)}) / ${glsl(MOUTH.tipX - MOUTH.cornerX)}, 0.0, 1.0);
         return mix(${glsl(MOUTH.cornerY)}, ${glsl(MOUTH.tipY)}, k * k * (3.0 - 2.0 * k));
       }
+      float neonStripeHeight(float x) {
+        return 0.021 + 0.011 * exp(-pow((x - 0.015) / 0.21, 2.0));
+      }
+      float neonStripeMask() {
+        float x = vSkinPoint.x;
+        float width = mix(0.007, 0.013, smoothstep(-0.23, -0.04, x));
+        float edge = max(0.0012, fwidth(vSkinPoint.y) * 0.8);
+        vec2 grain = fishScaleGrid();
+        float uneven = (fishHash(floor(grain) + vFishAppearance.z) - 0.5)
+          * 0.002 * fishFade(grain);
+        float band = 1.0 - smoothstep(width - edge, width + edge,
+          abs(vSkinPoint.y - neonStripeHeight(x) + uneven));
+        return band * smoothstep(-0.244, -0.186, x)
+          * (1.0 - smoothstep(0.318, 0.342, x));
+      }
+      float neonRedMask() {
+        float x = vSkinPoint.x;
+        // In P. innesi the anterior abdomen stays silver. Let the pigment feather
+        // into the middle of the body rather than forming a vertical painted seam.
+        float boundary = 0.009 * sin(vSkinPoint.y * 73.0 + vFishAppearance.z);
+        float rear = 1.0 - smoothstep(-0.073, 0.042, x + boundary);
+        float below = 1.0 - smoothstep(neonStripeHeight(x) - 0.016,
+          neonStripeHeight(x) - 0.002, vSkinPoint.y);
+        below = mix(below, 1.0, 1.0 - smoothstep(-0.285, -0.230, x));
+        return rear * below * (1.0 - 0.27 * smoothstep(0.86, 1.0, vFishUV.y));
+      }
       float fishRayCount(float part) {
         ${Object.entries(FIN_RAYS)
           .map(([part, count]) => `if (part < ${glsl(Number(part) + 0.5)}) return ${glsl(Math.max(count - 1, 2))};`)
@@ -936,69 +976,63 @@ export function applySkin(shader) {
       if (vFishPart < 0.5) {
         // Countershading: an olive dorsum against the substrate seen from above, a
         // guanine flank that mirrors the water, a pale belly against the surface.
-        vec3 skin = mix(vec3(0.0105, 0.0150, 0.0125), vec3(0.034, 0.049, 0.043),
-          smoothstep(0.02, 0.135, fishBand));
-        skin = mix(skin, vec3(0.470, 0.510, 0.500), smoothstep(0.185, 0.42, fishBand));
-        float bellyReach = smoothstep(-0.26, -0.12, fishX);
-        skin = mix(skin, vec3(0.655, 0.660, 0.630),
-          smoothstep(0.52, 0.84, fishBand) * bellyReach);
-        skin = mix(skin, vec3(0.720, 0.700, 0.635),
-          smoothstep(0.88, 1.0, fishBand) * bellyReach);
+        vec3 skin = mix(vec3(0.025, 0.030, 0.024), vec3(0.105, 0.119, 0.100),
+          smoothstep(0.015, 0.24, fishBand));
+        skin = mix(skin, vec3(0.270, 0.300, 0.280), smoothstep(0.25, 0.48, fishBand));
+        skin = mix(skin, vec3(0.480, 0.490, 0.430), smoothstep(0.57, 0.94, fishBand));
 
-        // The reflector band: blue-green, from behind the eye to the caudal peduncle.
-        float sheen = exp(-pow((fishBand - 0.250) / 0.070, 2.0))
-          * smoothstep(-0.285, -0.225, fishX)
-          * (1.0 - smoothstep(0.188, 0.245, fishX));
-        vec2 sheenGrid = fishScaleGrid();
-        float mottle = 1.0 + (fishHash(floor(sheenGrid) + 7.0) - 0.5) * 0.14
-          * fishFade(sheenGrid);
-        skin = mix(skin, vec3(0.080, 0.410, 0.620) * mottle, sheen * 0.82);
-
-        // Lateral line: one row of pored scales, gently decurved along the flank.
-        float lineBand = mix(0.50, 0.43, smoothstep(-0.28, 0.16, fishX));
-        float lateral = exp(-pow((fishBand - lineBand) / 0.020, 2.0));
-        vec2 poreGrid = fishScaleGrid();
-        float pore = smoothstep(0.60, 0.95, fishHash(vec2(floor(poreGrid.x), 3.0)));
-        skin *= 1.0 - lateral * (0.09 + 0.20 * pore) * fishFade(poreGrid);
+        // Scattered pigment and slight variation between individuals break up the
+        // broad flank. The marks are filtered at wallpaper size, not baked pixels.
+        vec2 pigmentGrid = vSkinPoint.xy * 690.0 + vFishAppearance.z;
+        float grain = fishHash(floor(pigmentGrid));
+        skin *= (0.96 + vFishAppearance.x * 0.08)
+          * (1.0 - pow(grain, 7.0) * 0.22 * fishFade(pigmentGrid));
 
         // Scales: a faint sheen difference per scale and a darker free margin. Most
         // of the scale relief lives in roughness and normal, not in albedo.
         vec2 grid = fishScaleGrid();
         float mask = fishScaleMask();
         float rim = smoothstep(0.40, 0.50, length((fract(grid) - 0.5) * vec2(0.85, 1.0)));
-        skin *= 1.0 + (fishHash(floor(grid)) - 0.5) * 0.06 * mask - rim * 0.035 * mask;
-
-        // Red pigment bleeds out of the caudal and anal fin bases over the posterior
-        // ventral flank, and the gill chamber shows warm through thin opercular skin.
-        float warm = (1.0 - smoothstep(-0.27, 0.0, fishX))
-          * smoothstep(0.32, 0.60, fishBand) * (1.0 - smoothstep(0.88, 1.0, fishBand));
-        skin = mix(skin, vec3(0.420, 0.105, 0.030), warm * 0.45);
-        float sheath = 1.0 - smoothstep(-0.292, -0.240, fishX);
-        skin = mix(skin, vec3(0.255, 0.080, 0.038), sheath * 0.60);
-        float gill = exp(-pow((fishX - 0.178) / 0.026, 2.0)
-          - pow((fishBand - 0.66) / 0.16, 2.0));
-        skin = mix(skin, vec3(0.330, 0.098, 0.078), gill * 0.20);
+        skin *= 1.0 + (fishHash(floor(grid)) - 0.5) * 0.05 * mask - rim * 0.030 * mask;
 
         // Head: silver cheek and opercle, dark olive over the skull and the snout.
-        vec3 cheek = mix(vec3(0.040, 0.052, 0.046), vec3(0.420, 0.440, 0.420),
+        vec3 cheek = mix(vec3(0.050, 0.065, 0.060), vec3(0.300, 0.355, 0.330),
           smoothstep(0.13, 0.40, fishBand));
-        skin = mix(skin, cheek, fishHead * 0.92);
-        skin = mix(skin, vec3(0.050, 0.056, 0.046), smoothstep(0.250, 0.330, fishX) * 0.82);
-        skin = mix(skin, vec3(0.098, 0.092, 0.078), smoothstep(0.330, 0.350, fishX) * 0.7);
+        skin = mix(skin, cheek, fishHead * 0.78);
+        skin = mix(skin, vec3(0.075, 0.080, 0.062), smoothstep(0.295, 0.350, fishX) * 0.48);
 
         // The opercular edge: a fine dark seam with the pale bony lip in front of it.
         float margin = fishX - fishOpercleX(fishY);
         float opercleFace = 1.0 - smoothstep(0.84, 1.0, fishBand);
-        skin *= 1.0 - 0.60 * exp(-pow(margin / 0.0028, 2.0)) * opercleFace;
-        skin *= 1.0 + 0.28 * exp(-pow((margin - 0.008) / 0.005, 2.0)) * opercleFace;
+        skin *= 1.0 - 0.45 * exp(-pow(margin / 0.0028, 2.0)) * opercleFace;
+        skin *= 1.0 + 0.20 * exp(-pow((margin - 0.008) / 0.005, 2.0)) * opercleFace;
 
-        // Mouth cleft, and the silver-gold ring of skin around the orbit.
+        float red = neonRedMask();
+        vec3 scarlet = vec3(0.430 + vFishAppearance.x * 0.065, 0.0045, 0.010);
+        scarlet *= 0.91 + fishHash(floor(grid) + vFishAppearance.z) * 0.15 * mask;
+        skin = mix(skin, scarlet, red);
+
+        // Structural colour stays illuminated by the aquarium. No emissive paint or
+        // bloom: the blue/green flash changes as each fish turns through the light.
+        float facing = abs(dot(normalize(vNormal), normalize(vViewPosition)));
+        float flash = clamp((1.0 - facing) * 1.5 + vFishAppearance.y * 0.16, 0.0, 1.0);
+        vec3 blue = mix(vec3(0.005, 0.145, 0.590), vec3(0.006, 0.370, 0.480), flash);
+        vec2 reflectorGrain = vSkinPoint.xy * 850.0 + vFishAppearance.z;
+        float flecks = fishHash(floor(reflectorGrain));
+        blue *= 0.94 + 0.32 * (flecks - 0.5) * fishFade(reflectorGrain);
+        skin = mix(skin, blue, neonStripeMask());
+
+        float gill = exp(-pow((fishX - 0.189) / 0.023, 2.0)
+          - pow((fishBand - 0.69) / 0.13, 2.0));
+        skin = mix(skin, vec3(0.240, 0.075, 0.066), gill * 0.12);
+
+        // A fine mouth cleft and a dark orbital edge keep the eye seated in the head.
         float cleft = exp(-pow((fishY - fishCleftY(fishX)) / 0.0030, 2.0))
           * smoothstep(0.304, 0.322, fishX);
         skin = mix(skin, vec3(0.040, 0.028, 0.024), cleft * 0.85);
         float orbit = fishOrbit();
         float ring = (1.0 - smoothstep(1.00, 1.18, orbit)) * smoothstep(0.88, 0.99, orbit);
-        skin = mix(skin, vec3(0.520, 0.455, 0.235), ring * 0.8);
+        skin = mix(skin, vec3(0.035, 0.070, 0.065), ring * 0.85);
 
         diffuseColor.rgb = skin;
 
@@ -1016,24 +1050,16 @@ export function applySkin(shader) {
       } else if (vFishPart < 6.5 || vFishPart > 11.5) {
         float caudal = 1.0 - step(1.5, vFishPart);
         float pectoral = step(3.5, vFishPart) * (1.0 - step(5.5, vFishPart));
-        float paleTip = step(2.5, vFishPart) * (1.0 - step(3.5, vFishPart))
-          + step(5.5, vFishPart) * (1.0 - step(6.5, vFishPart));
         float span = clamp(vFishUV.y, 0.0, 1.0);
         float along = clamp(vFishUV.x, 0.0, 1.0);
         float rays = fishRayCount(vFishPart);
 
         // Membrane: nearly colourless where there is no pigment, so the plants and
         // water behind the fin show through it.
-        vec3 membrane = vec3(0.135, 0.158, 0.142);
-        // Blood red at the base, carried furthest out through the two caudal lobes and
-        // clearing to hyaline at the margin. The pectorals stay almost clear.
-        float lobe = 0.5 - 0.5 * cos(PI2 * 2.0 * along);
-        float pigment = pow(1.0 - smoothstep(0.34, 1.04, span), 0.8)
-          * mix(1.0, 0.42 + 0.58 * lobe, caudal) * mix(1.0, 0.26, pectoral);
-        pigment = clamp(pigment, 0.0, 1.0);
-        diffuseColor.rgb = mix(membrane, vec3(0.400, 0.052, 0.020), pigment);
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.400, 0.410, 0.380),
-          paleTip * smoothstep(0.76, 0.98, span) * 0.7);
+        vec3 membrane = vec3(0.055, 0.073, 0.052);
+        // Only the caudal insertion carries a trace of the body's red pigment.
+        float pigment = caudal * (1.0 - smoothstep(0.04, 0.28, span)) * 0.82;
+        diffuseColor.rgb = mix(membrane, vec3(0.330, 0.012, 0.016), pigment);
 
         // Each soft ray branches twice on its way to the margin, so the ribbing
         // doubles and then doubles again over the outer half of the fin.
@@ -1046,8 +1072,8 @@ export function applySkin(shader) {
           stem * fishFade(vec2(along * rays, span)) +
           split * fishFade(vec2(along * rays * 2.0, span)) +
           twig * fishFade(vec2(along * rays * 4.0, span)), 0.0, 1.0);
-        vec3 rayTint = diffuseColor.rgb * 0.68 + vec3(0.088, 0.082, 0.072);
-        diffuseColor.rgb = mix(diffuseColor.rgb, rayTint, ribs * 0.85);
+        vec3 rayTint = diffuseColor.rgb * 0.38 + vec3(0.024, 0.025, 0.014);
+        diffuseColor.rgb = mix(diffuseColor.rgb, rayTint, ribs * 0.72);
 
         // Hyaline membrane: thin enough that most of the light carries straight through
         // it rather than scattering back, which is what keeps a fin see-through.
@@ -1055,22 +1081,24 @@ export function applySkin(shader) {
           FISH_FIN_PIGMENT * pigment + ${glsl(FIN_RAY_DENSITY)} * ribs);
         #ifdef FISH_MEMBRANE
           // Thickness falls away toward the free margin; pigment and rays add body.
-          float thickness = mix(1.0, mix(0.34, 0.50, caudal), smoothstep(0.06, 1.0, span));
-          diffuseColor.a = clamp(diffuseColor.a * mix(0.86, 1.0, caudal) * thickness
-            * (1.0 + pigment * 1.2 + ribs * 0.85), 0.0, 1.0);
+          float thickness = mix(0.38, 0.15, smoothstep(0.06, 1.0, span));
+          diffuseColor.a *= clamp(thickness + ribs * 0.32 + pigment * 0.50, 0.0, 0.90)
+            * mix(1.0, 0.74, pectoral);
         #endif
       } else if (vFishPart < 7.5) {
-        // Iris: a guanine ring, brightest below and behind the pupil, with fine fibres.
-        float fibre = 0.5 + 0.5 * cos(vFishUV.x * PI2 * 24.0);
-        vec3 iris = mix(vec3(0.620, 0.600, 0.415), vec3(0.330, 0.300, 0.150), vFishUV.y);
-        diffuseColor.rgb = iris * (0.92 + 0.08 * fibre)
-          * (0.48 + 0.52 * smoothstep(0.034, -0.016, fishY));
+        // The blue stripe continues around the upper iris. A narrow silver lower
+        // crescent catches the lamp, with a dark outer limbus instead of a gold rim.
+        float fibre = 0.5 + 0.5 * cos(vFishUV.x * PI2 * 38.0);
+        vec3 iris = mix(vec3(0.125, 0.195, 0.165), vec3(0.008, 0.310, 0.440),
+          smoothstep(0.007, 0.027, fishY));
+        iris = mix(iris, vec3(0.025, 0.055, 0.055), smoothstep(0.78, 1.0, vFishUV.y));
+        diffuseColor.rgb = iris * (0.83 + 0.17 * fibre);
       } else if (vFishPart < 8.5) {
         diffuseColor.rgb = vec3(0.0055, 0.0075, 0.0085);
       } else if (vFishPart < 9.5) {
         diffuseColor.rgb = vec3(0.036, 0.020, 0.018);
       } else if (vFishPart < 10.5) {
-        diffuseColor.rgb = vec3(0.175, 0.168, 0.132);
+        diffuseColor.rgb = vec3(0.028, 0.060, 0.060);
       } else {
         diffuseColor.rgb = vec3(0.330, 0.310, 0.265);
       }
@@ -1090,13 +1118,15 @@ export function applySkin(shader) {
           * (1.0 - smoothstep(0.155, 0.205, fishX));
         float plate = exp(-pow((fishX - 0.200) / 0.038, 2.0))
           * smoothstep(0.22, 0.46, fishBand) * (1.0 - smoothstep(0.80, 0.96, fishBand));
-        metalnessFactor = clamp(0.06 + 0.36 * max(scaled, plate), 0.0, 0.44);
+        float reflector = max(max(scaled, plate), neonStripeMask());
+        metalnessFactor = (0.09 + 0.54 * reflector) * (1.0 - neonRedMask() * 0.86);
         metalnessFactor *= smoothstep(-0.292, -0.248, fishX);
-        metalnessFactor *= 1.0 - 0.85 * smoothstep(0.88, 1.06, fishOrbit());
+        // Suppress the reflector only inside the eye, not over the rest of the body.
+        metalnessFactor *= smoothstep(0.88, 1.06, fishOrbit());
       } else if (vFishPart > 6.5 && vFishPart < 7.5) {
-        metalnessFactor = 0.20;
+        metalnessFactor = 0.38;
       } else if (vFishPart < 6.5 || vFishPart > 11.5) {
-        metalnessFactor = 0.05;
+        metalnessFactor = 0.0;
       } else {
         metalnessFactor = 0.0;
       }
@@ -1109,16 +1139,19 @@ export function applySkin(shader) {
       if (vFishPart < 0.5) {
         // Each scale is a slightly different mirror, which breaks what would
         // otherwise be one broad plastic highlight into a field of glints.
-        float scale = 0.17 + fishHash(floor(fishScaleGrid())) * 0.13;
+        float scale = 0.28 + fishHash(floor(fishScaleGrid())) * 0.06;
         roughnessFactor = mix(roughnessFactor, scale, fishScaleMask());
-        roughnessFactor = mix(roughnessFactor, 0.44, smoothstep(0.60, 0.94, fishBand));
+        roughnessFactor = mix(roughnessFactor, 0.43, smoothstep(0.60, 0.94, fishBand));
+        roughnessFactor = mix(roughnessFactor, 0.29, neonStripeMask() * 0.7);
+        roughnessFactor = mix(roughnessFactor, 0.40, neonRedMask() * 0.8);
         float grain = fishHash(floor(vSkinPoint.xy * 260.0));
-        roughnessFactor *= 1.0 + (grain - 0.5) * 0.26 * fishHead;
-        roughnessFactor = mix(roughnessFactor, 0.06, 1.0 - smoothstep(0.86, 1.04, fishOrbit()));
+        roughnessFactor *= 1.0 + (grain - 0.5) * 0.18 * fishHead
+          * fishFade(vSkinPoint.xy * 260.0);
+        roughnessFactor = mix(roughnessFactor, 0.30, 1.0 - smoothstep(0.86, 1.04, fishOrbit()));
       } else if (vFishPart > 6.5 && vFishPart < 7.5) {
-        roughnessFactor = 0.34;
-      } else if (vFishPart < 8.5) {
-        roughnessFactor = 0.05;
+        roughnessFactor = 0.24;
+      } else if (vFishPart > 7.5 && vFishPart < 8.5) {
+        roughnessFactor = 0.075;
       } else if (vFishPart > 9.5 && vFishPart < 10.5) {
         roughnessFactor = 0.09;
       }
@@ -1129,7 +1162,7 @@ export function applySkin(shader) {
       /* glsl */ `
       #include <normal_fragment_maps>
       if (vFishPart < 0.5) {
-        float relief = fishScaleRelief() * 0.00030;
+        float relief = fishScaleRelief() * 0.000075;
         vec3 dx = dFdx(-vViewPosition), dy = dFdy(-vViewPosition);
         vec3 rx = cross(dy, normal), ry = cross(normal, dx);
         float determinant = dot(dx, rx);
@@ -1156,17 +1189,16 @@ export function applySkin(shader) {
         float cornea = step(6.5, vFishPart) * (1.0 - step(8.5, vFishPart))
           + step(9.5, vFishPart) * (1.0 - step(10.5, vFishPart));
         material.clearcoat = mix(material.clearcoat, 1.0, cornea);
-        material.clearcoatRoughness = mix(material.clearcoatRoughness, 0.02, cornea);
+        material.clearcoatRoughness = mix(material.clearcoatRoughness, 0.055, cornea);
       #endif
       #ifdef USE_IRIDESCENCE
         // Thin-film interference over the guanine stack, mottled scale by scale.
         float sheenBand = vFishPart < 0.5
-          ? fishReflector(fishBand, fishX) * smoothstep(-0.30, -0.22, fishX)
+          ? neonStripeMask()
           : 0.0;
-        material.iridescence *= 0.12 + sheenBand * 0.88;
-        material.iridescenceThickness = 230.0
-          + fishHash(floor(fishScaleGrid())) * 160.0
-          + fishHash(floor(fishScaleGrid() * 0.34)) * 110.0;
+        material.iridescence *= sheenBand;
+        material.iridescenceThickness = 250.0 + vFishAppearance.y * 20.0
+          + fishHash(floor(fishScaleGrid())) * 35.0;
       #endif
     `,
     )
@@ -1188,18 +1220,18 @@ export function createFishMaterials() {
     color: 0xffffff,
     metalness: 0.5,
     roughness: 0.32,
-    clearcoat: 0.1,
-    clearcoatRoughness: 0.3,
-    iridescence: 0.5,
+    clearcoat: 0.08,
+    clearcoatRoughness: 0.35,
+    iridescence: 0.32,
     iridescenceIOR: 1.38,
     iridescenceThicknessRange: [180, 420],
   });
   const fins = new THREE.MeshStandardMaterial({
     color: 0xffffff,
-    metalness: 0.05,
-    roughness: 0.40,
+    metalness: 0.0,
+    roughness: 0.46,
     transparent: true,
-    opacity: 0.95,
+    opacity: 0.85,
     side: THREE.DoubleSide,
     depthWrite: false,
   });

@@ -1,4 +1,15 @@
-import { QUALITY_PRESETS, qualityName, renderScale } from '../../shared/render-policy.js';
+import {
+  QUALITY_PRESETS, qualityName as sharedQualityName, frameRate as sharedFrameRate, renderScale,
+} from '../../shared/render-policy.js';
+
+export const QUALITY_STORAGE_KEY = 'habitat-riverscape-quality';
+export const ULTRA_PIXELS = 3840 * 2160;
+export const qualityName = value => value === 'ultra' ? 'ultra' : sharedQualityName(value);
+export function frameRate(profile, requested = 60, onBattery = false) {
+  if (profile !== 'ultra') return sharedFrameRate(profile, requested, onBattery);
+  if (!Number.isFinite(requested) || requested <= 0) return 0;
+  return Math.min(requested, onBattery ? 20 : 30);
+}
 // Rendering budgets, kept separate from animation and habitat behaviour. The reference
 // profile reproduces the uploaded rendering/density settings for local A/B checks.
 export const PROFILES = Object.freeze({
@@ -31,15 +42,22 @@ export function renderSettings({
   profile = 'balanced', wallpaper = false, pixelRatio = 1, onBattery = false,
 } = {}) {
   const budget = PROFILES[profile] || PROFILES.balanced;
+  const ultra = profile === 'ultra';
   const dpr = Number.isFinite(pixelRatio) && pixelRatio > 0 ? pixelRatio : 1;
   const referenceResolution = wallpaper ? Math.min(2, Math.max(1.5, dpr)) : 1.5;
   return {
     ...budget,
-    // Do not make Retina resolution a multiplier of an already supersampled target.
-    resolution: budget.name === 'reference' ? referenceResolution :
-      renderScale(profile, pixelRatio, onBattery),
-    maxPixels: budget.name === 'reference' ? Infinity : QUALITY_PRESETS[qualityName(profile)].pixels,
+    name: ultra ? 'ultra' : budget.name,
+    // Supersample ordinary displays too: a 1080p desktop gets a 2880 × 1620
+    // image downsampled to its screen. Retina uses its native density, never DPR².
+    resolution: budget.name === 'reference' ? referenceResolution : ultra && !onBattery ?
+      Math.max(1.5, dpr) : renderScale(ultra ? 'balanced' : profile, pixelRatio, onBattery),
+    maxPixels: budget.name === 'reference' ? Infinity : ultra && !onBattery ?
+      ULTRA_PIXELS : QUALITY_PRESETS[sharedQualityName(profile)].pixels,
     referenceResolution,
+    shadowSize: ultra && !onBattery ? 4096 : budget.shadowSize,
+    aoSamples: ultra && !onBattery ? 12 : budget.aoSamples,
+    clarity: ultra && !onBattery ? 0.12 : 0,
     shadowHz: onBattery ? budget.batteryShadowHz : budget.shadowHz,
     // The leaf shader uses quarter-sample coverage for translucent tissue. Keep 4x
     // MSAA and the HDR format: changing either would be a much larger visual change.

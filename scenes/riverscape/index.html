@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#080e0c" />
     <meta
       name="description"
-      content="A living freshwater aquascape. A local, interactive 3D aquarium preview."
+      content="A living forest aquascape with 29 neon tetras, five cherry shrimp, upright driftwood and a winding sand path."
     />
     <title>Riverscape • Desktop Habitats</title>
     <link rel="icon" href="data:," />
@@ -23,11 +23,12 @@
     <main id="habitat" aria-label="Interactive freshwater aquarium">
       <canvas
         id="scene"
-        aria-label="A planted freshwater aquarium. Move the pointer near fish to interact. Click to feed. Space pauses. F enters fullscreen. H hides controls."
+        aria-label="A forest aquarium with layers of driftwood and grass, a rippling water surface, a winding sand path, 29 neon tetras and five red cherry shrimp roaming stones and wood. Hold the pointer still near fish for a cautious visit. Move gently beside shrimp to make them scuttle, or quickly toward them to trigger a tail-flick. Click to feed the fish. Space pauses. F enters fullscreen. H hides controls."
         tabindex="0"
       ></canvas>
       <nav class="chrome" aria-label="Aquariums">
         <a class="home-link" href="../../" aria-label="Habitats home">Habitats</a>
+        <p class="interaction-hint">Hold still near fish to invite a closer look. Click to feed.</p>
       </nav>
       <footer class="chrome" aria-label="Aquarium controls">
         <div class="buttons">
@@ -40,6 +41,7 @@
             <option value="eco">Eco</option>
             <option value="balanced" selected>Balanced</option>
             <option value="detail">Detail</option>
+            <option value="ultra">Ultra · Up to 4K</option>
           </select>
           <button disabled id="hide" title="H">Hide controls</button>
         </div>

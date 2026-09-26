@@ -38,6 +38,34 @@ enum Habitat: String, CaseIterable {
   }
 }
 
+/// Riverscape's rendering preference is independent of Reefscape and survives a restart.
+enum RiverscapeQuality: String, CaseIterable {
+  case eco, balanced, detail, ultra
+
+  var title: String {
+    switch self {
+    case .eco: "Eco"
+    case .balanced: "Balanced"
+    case .detail: "Detail"
+    case .ultra: "Ultra · Up to 4K"
+    }
+  }
+
+  func frameRate(onBattery: Bool) -> Int {
+    switch self {
+    case .eco: 20
+    case .balanced: 30
+    case .detail: onBattery ? 30 : 60
+    case .ultra: onBattery ? 20 : 30
+    }
+  }
+
+  static var selected: RiverscapeQuality {
+    get { UserDefaults.standard.string(forKey: "riverscapeQuality").flatMap(Self.init) ?? .ultra }
+    set { UserDefaults.standard.set(newValue.rawValue, forKey: "riverscapeQuality") }
+  }
+}
+
 /// Serves the bundled copy of the aquarium to the web view.
 final class SceneHandler: NSObject, WKURLSchemeHandler {
   private let root: URL
@@ -102,8 +130,11 @@ final class Wallpaper: NSObject, WKNavigationDelegate {
   private var inside = false
   private var rate = 0
   private var battery = false
+  private let habitat: Habitat
+  private var riverscapeQuality = RiverscapeQuality.selected
 
   init(screen: NSScreen, root: URL, habitat: Habitat) {
+    self.habitat = habitat
     let settings = WKWebViewConfiguration()
     settings.setURLSchemeHandler(
       SceneHandler(root: root, page: habitat.page), forURLScheme: sceneScheme)
@@ -178,7 +209,8 @@ final class Wallpaper: NSObject, WKNavigationDelegate {
     window.setFrame(screen.frame, display: true)
     window.orderFrontRegardless()
 
-    view.load(URLRequest(url: URL(string: "\(sceneScheme)://\(sceneHost)\(habitat.page)")!))
+    let qualityQuery = habitat == .riverscape ? "?quality=\(riverscapeQuality.rawValue)" : ""
+    view.load(URLRequest(url: URL(string: "\(sceneScheme)://\(sceneHost)\(habitat.page)\(qualityQuery)")!))
   }
 
   func close() {
@@ -213,10 +245,17 @@ final class Wallpaper: NSObject, WKNavigationDelegate {
     send()
   }
 
+  func setRiverscapeQuality(_ quality: RiverscapeQuality) {
+    guard habitat == .riverscape else { return }
+    riverscapeQuality = quality
+    send()
+  }
+
   private func send() {
     guard loaded else { return }
     view.evaluateJavaScript(
       """
+      \(habitat == .riverscape ? "typeof habitatQuality === 'function' && habitatQuality('\(riverscapeQuality.rawValue)');" : "")
       typeof habitatPower === 'function' && habitatPower(\(battery ? "true" : "false"));
       typeof habitatRate === 'function' && habitatRate(\(rate));
       """)
@@ -270,6 +309,10 @@ final class Wallpaper: NSObject, WKNavigationDelegate {
           gpu: context && context.getParameter(context.RENDERER),
           hidden: document.hidden,
           pointers: window.habitatPointerCount,
+          quality: window.habitatStats?.().profile,
+          fps: window.habitatStats?.().loop?.fps,
+          species: window.habitatStats?.().fish?.species,
+          shrimp: window.habitatStats?.().shrimp?.count,
         });
       })()
       """
@@ -305,6 +348,8 @@ final class Controller: NSObject, NSApplicationDelegate, NSMenuDelegate {
   private let pause = NSMenuItem()
   private let feed = NSMenuItem()
   private var habitatItems: [NSMenuItem] = []
+  private let qualityMenu = NSMenuItem(title: "Riverscape Quality", action: nil, keyEquivalent: "")
+  private var qualityItems: [NSMenuItem] = []
   private var habitat = Habitat.selected
   private var applied = 0
   private var pointerTimer: Timer?
@@ -425,7 +470,7 @@ final class Controller: NSObject, NSApplicationDelegate, NSMenuDelegate {
   /// Power depends on the machine and display; it must be measured on the target Mac.
   func applyRate() {
     let battery = onBattery
-    let full = battery ? 30 : 60
+    let full = habitat == .riverscape ? RiverscapeQuality.selected.frameRate(onBattery: battery) : (battery ? 30 : 60)
     let still = stopped || lowPower || !awake
     // Read the window list once for all displays, and never while deliberately still.
     let blockers = still ? [] : windowBlockers()
@@ -540,6 +585,18 @@ final class Controller: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let environment = NSMenuItem(title: "Environment", action: nil, keyEquivalent: "")
     environment.submenu = environments
     menu.addItem(environment)
+    let qualities = NSMenu(title: "Riverscape Quality")
+    qualities.autoenablesItems = false
+    for choice in RiverscapeQuality.allCases {
+      let item = NSMenuItem(title: choice.title, action: #selector(selectRiverscapeQuality), keyEquivalent: "")
+      item.target = self
+      item.representedObject = choice.rawValue
+      qualities.addItem(item)
+      qualityItems.append(item)
+    }
+    qualityMenu.submenu = qualities
+    qualityMenu.isHidden = habitat != .riverscape
+    menu.addItem(qualityMenu)
     menu.addItem(.separator())
     feed.title = "Feed"
     feed.target = self
@@ -564,6 +621,10 @@ final class Controller: NSObject, NSApplicationDelegate, NSMenuDelegate {
   func menuNeedsUpdate(_ menu: NSMenu) {
     for item in habitatItems {
       item.state = item.representedObject as? String == habitat.rawValue ? .on : .off
+    }
+    qualityMenu.isHidden = habitat != .riverscape
+    for item in qualityItems {
+      item.state = item.representedObject as? String == RiverscapeQuality.selected.rawValue ? .on : .off
     }
     state.title =
       lowPower
@@ -602,6 +663,14 @@ final class Controller: NSObject, NSApplicationDelegate, NSMenuDelegate {
     Habitat.selected = chosen
     status?.button?.toolTip = "Desktop Habitats · \(chosen.title)"
     build()
+  }
+
+  @objc private func selectRiverscapeQuality(_ sender: NSMenuItem) {
+    guard habitat == .riverscape, let name = sender.representedObject as? String,
+      let chosen = RiverscapeQuality(rawValue: name) else { return }
+    RiverscapeQuality.selected = chosen
+    for screen in screens { screen.setRiverscapeQuality(chosen) }
+    applyRate()
   }
 
   @objc private func togglePause() {

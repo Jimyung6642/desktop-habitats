@@ -5,7 +5,7 @@ import { groundHeight, smoothstep } from "./math.js";
 // that bends plants, carries debris and pushes the fish, and the light refracted
 // by the surface.
 export const waterTime = { value: 0 };
-export const SURFACE_Y = 10;
+export const SURFACE_Y = 11.1;
 export const FLOW_DIRECTION = new THREE.Vector3(1, 0, 0.22).normalize();
 
 // Flow runs along FLOW_DIRECTION, left to right with a slight drift toward the front

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { renderSettings, framebufferSize } from '../src/render-policy.js';
+import { renderSettings, framebufferSize, frameRate as riverFrameRate,
+  qualityName as riverQualityName, ULTRA_PIXELS } from '../src/render-policy.js';
 import { frameRate, qualityName, renderScale, QUALITY_PRESETS } from '../../shared/render-policy.js';
 import { createFrameLoop } from '../../shared/frame-loop.js';
 
@@ -80,3 +81,35 @@ assert.equal(qualityName('toString'), 'balanced');
 assert.equal(renderScale('balanced', NaN), 1);
 assert.equal(renderScale('detail', 1), 1);
 assert.deepEqual(framebufferSize(3840,2160,1.25,8192,1800000), {width:1789,height:1006,scale:Math.sqrt(1800000/(3840*2160))});
+
+// Ultra uses physical display pixels up to a 4K budget, not CSS pixels multiplied
+// twice. A power transition keeps the chosen profile but reduces its running cost.
+const ultra = renderSettings({ profile: 'ultra', wallpaper: true, pixelRatio: 2 });
+assert.deepEqual(framebufferSize(1920, 1080, ultra.resolution, 8192, ultra.maxPixels),
+  { width: 3840, height: 2160, scale: 2 });
+const large = framebufferSize(2560, 1440, ultra.resolution, 8192, ultra.maxPixels);
+assert.equal(large.width * large.height, ULTRA_PIXELS);
+assert.equal(ultra.backgroundDensity, balanced.backgroundDensity, 'Resolution must not regenerate planting');
+assert.equal(ultra.samples, 4);
+assert.equal(ultra.shadowSize, 4096);
+assert.equal(ultra.aoSamples, 12);
+const desktopUltra = renderSettings({ profile: 'ultra', wallpaper: true, pixelRatio: 1 });
+assert.deepEqual(framebufferSize(1920, 1080, desktopUltra.resolution, 8192, desktopUltra.maxPixels),
+  { width: 2880, height: 1620, scale: 1.5 }, '1080p displays must also gain fine detail');
+const ultraBattery = renderSettings({ profile: 'ultra', pixelRatio: 2, onBattery: true });
+assert.equal(ultraBattery.name, 'ultra');
+assert.equal(ultraBattery.maxPixels, balanced.maxPixels);
+assert.equal(ultraBattery.resolution, battery.resolution);
+assert.equal(ultraBattery.shadowSize, 2048);
+assert.equal(ultraBattery.aoSamples, 8);
+assert.equal(riverFrameRate('ultra'), 30);
+assert.equal(riverFrameRate('ultra', 60, true), 20);
+assert.equal(riverFrameRate('ultra', 0), 0);
+assert.equal(riverFrameRate('ultra', NaN), 0);
+assert.equal(riverFrameRate('ultra', 20), 20);
+assert.equal(riverQualityName('ultra'), 'ultra');
+assert.equal(qualityName('ultra'), 'balanced', 'Ultra must remain specific to Riverscape');
+assert.equal(renderSettings({ profile: 'ultra', pixelRatio: NaN }).resolution, 1.5);
+assert.deepEqual(framebufferSize(1080, 1920, ultra.resolution, 8192, ultra.maxPixels),
+  { width: 2160, height: 3840, scale: 2 });
+console.log('PASS: Riverscape native/4K/portrait resolution, battery fallback, host rate caps and Reefscape profile isolation');

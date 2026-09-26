@@ -1,7 +1,9 @@
 import * as THREE from "three";
 import { groundHeight, randomGenerator, smoothstep } from "./math.js";
 import { flowDirectionAt, shelteredVelocity, thicketAt } from "./water.js";
+import { resolveHardscapeContact, visibleBetween } from "./interaction.js";
 import {
+  anatomyMotionGLSL,
   applySkin,
   createFishMaterials,
   makeAnatomy,
@@ -9,7 +11,7 @@ import {
   STANDARD_LENGTH,
 } from "./fish-anatomy.js";
 
-export const COUNT = 24;
+export const COUNT = 29;
 // The whole water column the fish may use. The floor is the sand, tracked separately.
 export const BOUNDS = {
   minX: -8.3,
@@ -43,6 +45,7 @@ const SWIM = {
     hover: 1.2,
     settle: 0,
     inspect: 1.2,
+    observe: 1.6,
     travel: 6.0,
     feed: 9.0,
     escape: 0,
@@ -143,9 +146,14 @@ const THREAT = {
 // see the threat itself.
 const CONTAGION = { range: 2.2, chance: 0.9, latency: [0.04, 0.13], spread: 0.5 };
 
+// A quiet hand occasionally attracts a few individuals. These are visual interaction
+// tunings, not a species calibration: inspection stays local, brief and subordinate to
+// feeding or alarm. Each fish keeps its own confidence and cooldown.
+const OBSERVE = { delay: 2.8, range: 4.4, limit: 3, speed: 0.65, standOff: 1.2 };
+
 // Everything a fish does about food is measured against its own body rather than the
 // tank, because that is what the eye compares it to: a strike is a fifth of a body
-// length, not a number of centimetres. A bloodfin is a 40 mm adult drawn STANDARD_LENGTH
+// length, not a number of centimetres. The tetra is drawn STANDARD_LENGTH
 // units long, so a body length is that many units before the fish's individual scale.
 //
 // Three senses find the food, with three ranges and three latencies, and the stagger
@@ -285,23 +293,29 @@ const SWIM_GLSL = /* glsl */ `
   // Part ids come from fish-anatomy.js: 4 and 5 are the pectorals, 1-3, 6 and 12 the other fins.
   attribute vec4 aSwim; // x: wave phase, y: wave angle, z: turning curvature, w: pectoral brake
   attribute float aFinPhase;
+  attribute vec3 aLife; // ventilation phase, jaw opening, effort
+  attribute vec3 aAppearance; // pigment, reflector variation, stable individual seed
   attribute float aPart;
   attribute float aFinProgress;
   varying vec3 vSkinPoint;
   varying vec2 vFishUV;
   varying float vFishPart;
+  varying vec3 vFishAppearance;
   const float PIVOT = 0.12;
   vec3 gSwimPosition;
+  ${anatomyMotionGLSL}
   float spineAngle(float s) {
     float along = clamp(s / 0.57, 0.0, 1.0);
     return aSwim.z * s * (s < 0.0 ? 0.18 : 1.0)
       - 0.025 * aSwim.y * sin(aSwim.x)
       + aSwim.y * pow(along, 1.35) * sin(aSwim.x - s * 7.5);
   }
-  vec3 finMotion(vec3 p) {
+  vec3 finMotion(vec3 p, inout vec3 n) {
+    p = ventilate(p, n);
     if (aPart > 3.5 && aPart < 5.5) {
       float side = aPart < 4.5 ? 1.0 : -1.0;
-      float beat = sin(aFinPhase + side * 0.9);
+      float beat = sin(aFinPhase + side * (0.9 + 0.22 * sin(aLife.x * 0.5)))
+        * (0.65 + 0.35 * aSwim.w);
       p.z += side * aFinProgress * (0.013 * beat + 0.018 * aSwim.w);
       p.x += aFinProgress * (0.008 * beat - 0.033 * aSwim.w);
       p.y += aFinProgress * 0.008 * cos(aFinPhase + side * 0.9);
@@ -348,7 +362,8 @@ function applySwimming(material, withColor = true) {
           "#include <beginnormal_vertex>",
           /* glsl */ `
           vec3 objectNormal = vec3(normal);
-          gSwimPosition = bendSpine(finMotion(position), objectNormal);
+          vec3 livingPosition = finMotion(position, objectNormal);
+          gSwimPosition = bendSpine(livingPosition, objectNormal);
         `,
         )
         .replace(
@@ -358,6 +373,7 @@ function applySwimming(material, withColor = true) {
           vSkinPoint = position;
           vFishUV = uv;
           vFishPart = aPart;
+          vFishAppearance = aAppearance;
         `,
         );
       applySkin(shader);
@@ -366,13 +382,14 @@ function applySwimming(material, withColor = true) {
         "#include <begin_vertex>",
         /* glsl */ `
         vec3 swimNormal = vec3(0.0, 1.0, 0.0);
-        vec3 transformed = bendSpine(finMotion(position), swimNormal);
+        vec3 livingPosition = finMotion(position, swimNormal);
+        vec3 transformed = bendSpine(livingPosition, swimNormal);
       `,
       );
     }
   };
   material.customProgramCacheKey = () =>
-    `riverscape-fish-${withColor ? "skin" : "depth"}-4`;
+    `riverscape-neon-${withColor ? "skin" : "depth"}-5`;
 }
 
 function clampToBox(position, box, margin = 0) {
@@ -421,12 +438,25 @@ export function createFishSchool(
   const finPhaseAttribute = new THREE.InstancedBufferAttribute(
     new Float32Array(COUNT), 1,
   );
+  const lifeAttribute = new THREE.InstancedBufferAttribute(new Float32Array(COUNT * 3), 3);
+  const appearanceAttribute = new THREE.InstancedBufferAttribute(new Float32Array(COUNT * 3), 3);
+  for (let id = 0; id < COUNT; id++) {
+    // Appearance never consumes the behaviour RNG, so material edits cannot change
+    // the fish's routes, feeding decisions or deterministic captures.
+    appearanceAttribute.setXYZ(id, ((id * 13) % COUNT) / (COUNT - 1),
+      ((id * 7) % COUNT) / (COUNT - 1) - 0.5, id * 17.17 + 3.1);
+  }
   swimAttribute.setUsage(THREE.DynamicDrawUsage);
   finPhaseAttribute.setUsage(THREE.DynamicDrawUsage);
+  lifeAttribute.setUsage(THREE.DynamicDrawUsage);
   geometry.body.setAttribute("aSwim", swimAttribute);
   geometry.fins.setAttribute("aSwim", swimAttribute);
   geometry.body.setAttribute("aFinPhase", finPhaseAttribute);
   geometry.fins.setAttribute("aFinPhase", finPhaseAttribute);
+  for (const mesh of [geometry.body, geometry.fins]) {
+    mesh.setAttribute("aLife", lifeAttribute);
+    mesh.setAttribute("aAppearance", appearanceAttribute);
+  }
   const { skin: skinMaterial, fins: finMaterial } = createFishMaterials();
   const depthMaterial = new THREE.MeshDepthMaterial({
     depthPacking: THREE.RGBADepthPacking,
@@ -436,7 +466,7 @@ export function createFishSchool(
   applySwimming(depthMaterial, false);
   const bodies = new THREE.InstancedMesh(geometry.body, skinMaterial, COUNT);
   const membranes = new THREE.InstancedMesh(geometry.fins, finMaterial, COUNT);
-  bodies.name = "Silver-blue freshwater fish";
+  bodies.name = "Neon tetra school";
   membranes.name = "Attached translucent fish fins";
   bodies.castShadow = true;
   bodies.receiveShadow = true;
@@ -467,6 +497,7 @@ export function createFishSchool(
   let waterClock = 0;
   let startled = 0;
   let escapes = 0;
+  let observations = 0;
   const initialPositions = [];
   const fish = Array.from({ length: COUNT }, (_, id) => {
     const band = id % 6;
@@ -478,7 +509,8 @@ export function createFishSchool(
         range(0.42, 2.7),
       );
     } while (
-      initialPositions.some((other) => other.distanceToSquared(position) < 0.55)
+      initialPositions.some((other) => other.distanceToSquared(position) < 0.55) ||
+      obstacles.some(({ center, radius }) => position.distanceToSquared(center) < (radius + 0.32) ** 2)
     );
     initialPositions.push(position);
     // Most of the shoal already faces into the filter return.
@@ -510,6 +542,8 @@ export function createFishSchool(
       stroke: null,
       nextStroke: range(0, 0.5),
       finPhase: range(0, TAU),
+      breathPhase: (id * 2.399963) % TAU,
+      gape: 0,
       yawRate: 0,
       bend: 0,
       finBrake: 0.25,
@@ -522,6 +556,9 @@ export function createFishSchool(
       lastFlick: -Infinity,
       pendingEscape: null,
       alarm: 0,
+      attention: 0,
+      confidence: 0.25 + ((id * 7) % COUNT) / (COUNT - 1) * 0.75,
+      nextObserve: 0,
       refractoryUntil: 0,
       // Feeding. `keen` and `searching` are the two clocks of APPETITE and `foraging` is
       // whichever of them is higher; `food` is the pellet this fish is going for, held
@@ -531,6 +568,8 @@ export function createFishSchool(
       foraging: 0,
       appetite: 1,
       food: null,
+      foodSeen: position.clone(),
+      foodLostAt: 0,
       foodSerial: -1,
       strikeUntil: 0,
       launch: 0,
@@ -751,6 +790,8 @@ export function createFishSchool(
   function forage(f, pellet) {
     f.mode = "feed";
     f.food = pellet;
+    f.foodSeen.copy(pellet.position);
+    f.foodLostAt = 0;
     f.foodSerial = pellet.serial;
     f.interest = null;
     f.attempts = 0;
@@ -859,6 +900,15 @@ export function createFishSchool(
   function senseFood(f, dt, informer) {
     if (f.food && (f.food.gone || f.food.serial !== f.foodSerial)) abandon(f, true);
     if (f.mode === "escape") return;
+    if (f.food) {
+      if (visibleBetween(f.position, f.food.position, obstacles)) {
+        f.foodSeen.copy(f.food.position);
+        f.foodLostAt = 0;
+      } else {
+        if (!f.foodLostAt) f.foodLostAt = elapsed;
+        if (elapsed - f.foodLostAt > 0.8) abandon(f, true);
+      }
+    }
 
     // Smell has no direction in it. The plume is the drop point carried downstream at the
     // speed of the water that took it, so a fish behind it meets the front many seconds
@@ -920,6 +970,8 @@ export function createFishSchool(
     let closest = f.food
       ? f.position.distanceTo(f.food.position) * 0.6
       : FEED.sight;
+    let bestScore = closest;
+    const sightLimit = closest;
     let best = null;
     // A fish deep in the tank does not rocket to the film for a floating pellet, though
     // one already worked up will come further up for it.
@@ -928,11 +980,18 @@ export function createFishSchool(
       if (pellet.gone) continue;
       scan.subVectors(pellet.position, f.position);
       const d = scan.length();
-      if (d > closest) continue;
+      if (d > sightLimit) continue;
       if (f.heading.dot(scan) < SENSES.blindCosine * d) continue;
       if (food.floating(pellet) && f.position.y < rise) continue;
+      if (!visibleBetween(f.position, pellet.position, obstacles)) continue;
+      // Prefer a similarly close free morsel over joining several mouths on one grain.
+      // Food remains unreserved: an actual mouth reaching it still decides the winner.
+      const rivals = fish.reduce((count, other) => count + Number(other !== f && other.food === pellet), 0);
+      const score = d * (1 + 0.22 * Math.min(2, rivals));
+      if (score >= bestScore) continue;
       best = pellet;
       closest = d;
+      bestScore = score;
     }
     if (!best || best === f.food) return;
     // A pellet lying on the sand has the substrate's own texture behind it and no
@@ -1028,6 +1087,7 @@ export function createFishSchool(
     target.subVectors(pointer.position, f.position);
     const d = target.length();
     if (d > THREAT.range || d < 1e-3) return;
+    if (!visibleBetween(f.position, pointer.position, obstacles)) return;
     target.multiplyScalar(1 / d);
     const seen = f.heading.dot(target) > SENSES.blindCosine;
     // Closing speed over distance: the rate the object grows in the fish's eye.
@@ -1046,7 +1106,7 @@ export function createFishSchool(
       return;
     }
     // Something merely close is given room, less and less as it becomes familiar.
-    const zone = THREAT.flightZone / (1 + f.alarm);
+    const zone = THREAT.flightZone / (1 + f.alarm) * (f.mode === "observe" ? 0.55 : 1);
     if (d < zone) {
       f.alarm += dt * THREAT.familiarity;
       target.y *= 0.4;
@@ -1056,6 +1116,45 @@ export function createFishSchool(
         clampToBox(f.anchor, BOUNDS, 0.5);
       }
     }
+  }
+
+  function observePointer(f, pointer, dt, observers) {
+    const quiet = pointer && pointer.stillFor >= OBSERVE.delay;
+    const distance = pointer ? f.position.distanceTo(pointer.position) : Infinity;
+    const visible = quiet && distance < OBSERVE.range &&
+      visibleBetween(f.position, pointer.position, obstacles);
+    if (f.mode === "observe") {
+      if (!visible || elapsed >= f.until || f.alarm > 0.65) {
+        f.nextObserve = elapsed + 10 + (1 - f.confidence) * 12;
+        f.attention = 0;
+        settle(f);
+        return -1;
+      }
+      return 0;
+    }
+    if (!visible || f.mode === "feed" || f.mode === "escape" || f.flick ||
+        f.pendingEscape || f.interest || f.alarm > 0.35 || elapsed < f.nextObserve) {
+      f.attention = Math.max(0, f.attention - dt * 2);
+      return 0;
+    }
+    delta.subVectors(pointer.position, f.position);
+    if (f.heading.dot(delta) < SENSES.blindCosine * distance) return 0;
+    f.attention += dt * (0.65 + f.confidence * 0.6);
+    if (f.attention < 1.1 + (1 - f.confidence) * 2 || observers >= OBSERVE.limit) return 0;
+    f.goal.set(
+      pointer.position.x + Math.sin(f.id * 2.4) * 0.7,
+      pointer.position.y + Math.cos(f.id * 1.7) * 0.3,
+      pointer.position.z - OBSERVE.standOff - (1 - f.confidence) * 0.4,
+    );
+    clampToBox(f.goal, BOUNDS, 0.5);
+    if (!visibleBetween(f.position, f.goal, obstacles)) return 0;
+    f.mode = "observe";
+    f.until = elapsed + 4 + f.confidence * 3;
+    f.nextObserve = f.until + 10 + (1 - f.confidence) * 12;
+    f.attention = 0;
+    f.departed = -Infinity;
+    observations++;
+    return 1;
   }
 
   function decide(f) {
@@ -1082,6 +1181,7 @@ export function createFishSchool(
 
   function update(dt, time, pointer) {
     dt = Math.min(Math.max(dt, 0), 0.05);
+    if (dt === 0 && elapsed > 0) return;
     elapsed += dt;
     waterClock = time;
     // A pellet touching the film is the loudest thing that happens in a quiet tank, and
@@ -1114,6 +1214,8 @@ export function createFishSchool(
             );
         }
       }
+    let observers = 0;
+    for (const f of fish) if (f.mode === "observe") observers++;
     for (const f of fish) {
       const { position, swim, heading } = f;
       shelteredVelocity(position, time, water, thickets);
@@ -1215,6 +1317,7 @@ export function createFishSchool(
           );
       }
       if (pointer) threat(f, pointer, dt);
+      observers += observePointer(f, pointer, dt, observers);
       // Food is sensed after the pointer, so a fish that has just been startled is
       // already out of feeding by the time it is asked whether it can see a pellet.
       let foodDistance = Infinity;
@@ -1230,7 +1333,7 @@ export function createFishSchool(
           // second ago and corrects continuously, which is what bends the approach into
           // the curve from below instead of a straight interception.
           morsel
-            .copy(f.food.position)
+            .copy(f.foodSeen)
             .addScaledVector(f.food.velocity, -FORAGE.lag);
         }
       }
@@ -1330,6 +1433,8 @@ export function createFishSchool(
           .subVectors(f.anchor, position)
           .multiplyScalar(HOVER.trim)
           .clampLength(0, HOVER.trimSpeed);
+      } else if (mode === "observe") {
+        desired.subVectors(f.goal, position).multiplyScalar(0.8).clampLength(0, OBSERVE.speed);
       } else if (mode === "inspect") {
         // Hold just off the object, drifting slightly, with short pecks toward it.
         delta.subVectors(f.interest.point, position);
@@ -1443,6 +1548,7 @@ export function createFishSchool(
       desired.addScaledVector(separation, SHOAL.separation * (1 - 0.4 * f.keen));
       if (f.mode === "travel") desired.add(urge);
       else if (f.mode === "hover") desired.addScaledVector(urge, 0.5);
+      else if (f.mode === "observe") desired.addScaledVector(urge, 0.25);
       // A feeding fish ignores the shoal, but not something that has come too close: the
       // give-way term the pointer writes into the same pull is kept.
       else if (f.mode === "feed") desired.addScaledVector(urge, 0.3);
@@ -1480,7 +1586,10 @@ export function createFishSchool(
       const wanted = desired.length();
       if (!bending) {
         let steer = false;
-        if (f.mode === "inspect") {
+        if (f.mode === "observe" && pointer && f.goal.distanceToSquared(position) < 0.65) {
+          target.subVectors(pointer.position, position).normalize();
+          steer = true;
+        } else if (f.mode === "inspect") {
           target.subVectors(f.interest.point, position).normalize();
           steer = true;
         } else if (
@@ -1592,6 +1701,10 @@ export function createFishSchool(
       f.velocity.copy(swim).add(water);
       position.addScaledVector(f.velocity, dt);
       clampToBox(position, BOUNDS);
+      if (resolveHardscapeContact(position, f.velocity, obstacles, f.scale * 0.23)) {
+        clampToBox(position, BOUNDS);
+        swim.copy(f.velocity).sub(water);
+      }
 
       // Yaw rate over speed is the curvature of the path; the body conforms to it, up to
       // the C-bend a small fish can make, with the lag of its muscles. A flick prescribes
@@ -1616,7 +1729,7 @@ export function createFishSchool(
       const pectorals =
         f.mode === "settle"
           ? 1
-          : f.mode === "inspect"
+          : f.mode === "inspect" || f.mode === "observe"
             ? 0.5
             : // Flared through the brake and held out through the stalk: the single most
               // legible "this fish is about to eat something" pose in the sequence.
@@ -1630,6 +1743,14 @@ export function createFishSchool(
       f.finBrake = THREE.MathUtils.lerp(f.finBrake, pectorals, 1 - Math.exp(-dt * 6));
       if (f.stroke || flick) f.phase = (f.phase + dt * TAU * frequency) % TAU;
       f.finPhase = (f.finPhase + dt * TAU * (2.1 + f.effort * 1.5)) % TAU;
+      f.breathPhase = (f.breathPhase + dt * TAU
+        * (1.25 + f.character * 0.25 + Math.min(f.effort, 1) * 0.3)) % TAU;
+      const strikeDuration = STRIKE.stage1 + STRIKE.stage2 + STRIKE.follow;
+      const strikeProgress = THREE.MathUtils.clamp(1 - (f.strikeUntil - elapsed) / strikeDuration, 0, 1);
+      const gapeTarget = f.strikeUntil > elapsed ? Math.sin(strikeProgress * Math.PI) :
+        f.handling > elapsed ? 0.12 * (0.5 + 0.5 * Math.sin(f.breathPhase * 2)) : 0;
+      f.gape = THREE.MathUtils.lerp(f.gape, gapeTarget, 1 - Math.exp(-dt * 36));
+      lifeAttribute.setXYZ(f.id, f.breathPhase, f.gape, f.effort);
       swimAttribute.setXYZW(
         f.id,
         f.phase,
@@ -1649,7 +1770,8 @@ export function createFishSchool(
       );
       targetQuaternion.multiply(bankQuaternion);
       f.quaternion.copy(targetQuaternion);
-      scale.setScalar(f.scale);
+      scale.set(f.scale, f.scale * (0.96 + appearanceAttribute.getX(f.id) * 0.10),
+        f.scale * (1.0 + appearanceAttribute.getY(f.id) * 0.10));
       instance.compose(position, f.quaternion, scale);
       bodies.setMatrixAt(f.id, instance);
       membranes.setMatrixAt(f.id, instance);
@@ -1658,6 +1780,7 @@ export function createFishSchool(
     membranes.instanceMatrix.needsUpdate = true;
     swimAttribute.needsUpdate = true;
     finPhaseAttribute.needsUpdate = true;
+    lifeAttribute.needsUpdate = true;
   }
 
   for (const f of fish) if (f.id % 4 !== 0) leave(f);
@@ -1666,7 +1789,7 @@ export function createFishSchool(
     update,
     fish,
     getTelemetry() {
-      const states = { hover: 0, travel: 0, settle: 0, inspect: 0, feed: 0, escape: 0 };
+      const states = { hover: 0, travel: 0, settle: 0, inspect: 0, observe: 0, feed: 0, escape: 0 };
       let twitching = 0,
         totalSpeed = 0,
         maximumSpeed = 0,
@@ -1681,12 +1804,14 @@ export function createFishSchool(
       }
       return {
         count: COUNT,
+        species: "Paracheirodon innesi",
         states,
         twitching,
         averageSpeed: totalSpeed / COUNT,
         maximumSpeed,
         pointerResponses: startled,
         escapes,
+        observations,
         foraging,
         strikes,
         bites,

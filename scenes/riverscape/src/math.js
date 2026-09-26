@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { pathCenter, pathWidth } from "./layout.js";
 
 import { randomGenerator } from "../../shared/random.js";
 export { randomGenerator };
@@ -38,24 +39,22 @@ export function noise(x, y, z) {
   );
 }
 
-// The sand channel: the open path that runs in from the front glass, a little left of
-// centre, and curves back toward the foot of the wood, narrowing as it goes. It is 1 on
-// the centreline and falls to 0 on the banks. The substrate dips along it, and sediment,
-// algae and plants keep off it.
+// An S-shaped sand path narrows into the forest. Its shared mask also keeps plants
+// off the channel and gathers sediment along the sheltered banks.
 export function channel(x, z) {
-  const centre = 0.3 - 0.25 * z;
-  const halfWidth = Math.max(0.45, 1.45 + 0.25 * z);
-  return Math.exp(-(((x - centre) / halfWidth) ** 2));
+  return Math.exp(-(((x - pathCenter(z)) / pathWidth(z)) ** 2));
 }
 
 export function groundHeight(x, z) {
   return (
-    0.12 +
+    0.24 +
     0.055 * Math.sin(x * 1.8 + z) +
     0.045 * Math.sin(z * 2.3 - x * 0.7) +
-    0.34 * Math.max(0, -z / 5) +
-    0.14 * Math.exp(-((x + 5) ** 2 / 5 + (z + 1) ** 2 / 4)) -
-    0.2 * channel(x, z)
+    0.96 * Math.max(0, -z / 5) +
+    (1 - channel(x, z)) * (0.18 +
+      0.28 * Math.exp(-((x + 4) ** 2 / 9 + (z + 1) ** 2 / 7)) +
+      0.22 * Math.exp(-((x - 5) ** 2 / 12 + (z + 0.5) ** 2 / 5))) -
+    0.16 * channel(x, z)
   );
 }
 
@@ -78,8 +77,9 @@ export class GeometryBatch {
     this.bend = [];
     this.along = [];
     this.thin = [];
+    this.leafKinds = [];
   }
-  vertex(p, uv, color, anchor, strand, thin = 0) {
+  vertex(p, uv, color, anchor, strand, thin = 0, leafKind = 0) {
     const i = this.positions.length / 3;
     this.positions.push(p.x, p.y, p.z);
     this.uvs.push(...uv);
@@ -89,6 +89,7 @@ export class GeometryBatch {
     this.bend.push(direction.x, direction.y, direction.z, compliance);
     this.along.push(tangent.x, tangent.y, tangent.z, distance);
     this.thin.push(thin);
+    this.leafKinds.push(leafKind);
     return i;
   }
   quad(a, b, c, d) {
@@ -106,6 +107,7 @@ export class GeometryBatch {
     g.setAttribute("bend", new THREE.Float32BufferAttribute(this.bend, 4));
     g.setAttribute("along", new THREE.Float32BufferAttribute(this.along, 4));
     g.setAttribute("thin", new THREE.Float32BufferAttribute(this.thin, 1));
+    g.setAttribute("leafKind", new THREE.Float32BufferAttribute(this.leafKinds, 1));
     g.setIndex(this.indices);
     g.computeVertexNormals();
     return g;

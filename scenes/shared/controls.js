@@ -1,13 +1,16 @@
 import { qualityName } from './render-policy.js';
 import { setActionIcon } from '../../ui/icons.js';
 
-export function preferredQuality(params) {
+export function preferredQuality(params, {
+  storageKey = 'habitat-quality', normalize = qualityName, defaultQuality = 'balanced',
+} = {}) {
   let saved;
-  try { saved = localStorage.getItem('habitat-quality'); } catch {}
-  return qualityName(params.get('quality') || saved || (navigator.connection?.saveData ? 'eco' : 'balanced'));
+  try { saved = localStorage.getItem(storageKey); } catch {}
+  return normalize(params.get('quality') || saved || (navigator.connection?.saveData ? 'eco' : defaultQuality));
 }
 
-export function installControls({ habitat, isPaused, isRunning, pause, feed, quality, setQuality }) {
+export function installControls({ habitat, isPaused, isRunning, pause, feed, quality, setQuality,
+  qualityStorageKey = 'habitat-quality' }) {
   document.querySelectorAll('.chrome button, .chrome select, #show-controls').forEach(element => { element.disabled = false; });
   const pauseButton = document.querySelector('#pause');
   const feedButton = document.querySelector('#feed');
@@ -46,7 +49,7 @@ export function installControls({ habitat, isPaused, isRunning, pause, feed, qua
   document.querySelector('#show-controls')?.addEventListener('click', () => clean(false));
   select?.addEventListener('change', () => {
     setQuality(select.value);
-    try { localStorage.setItem('habitat-quality', select.value); } catch {}
+    try { localStorage.setItem(qualityStorageKey, select.value); } catch {}
     refresh();
   });
   document.addEventListener('keydown', event => {

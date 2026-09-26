@@ -1,5 +1,12 @@
 # Desktop Habitats
 
+This fork of [Chase Lean's Desktop Habitats](https://github.com/chaseleantj/desktop-habitats)
+expands Riverscape with a forest aquascape, 29 neon tetras, five interactive cherry shrimp,
+layered background planting, a reflective water surface and detailed wood and stone materials.
+See the [Riverscape guide](scenes/riverscape/README.md) for the rendering and behavior details.
+
+![Riverscape forest aquarium with neon tetras and cherry shrimp](docs/images/riverscape-wide.png)
+
 [![Desktop Habitats aquarium demo](docs/images/demo.gif)](docs/videos/demo.mp4)
 
 Have you always wanted an aquarium? Now you can have it, right on your desktop :)
@@ -35,7 +42,7 @@ You don't need Node.js for the wallpaper. If you already have it, `npm run wallp
 Click the fish icon in the menu bar:
 
 - **Environment** switches every screen between Riverscape and Reefscape and remembers your choice.
-- **Feed** drops ten pellets into each screen's tank, or eight in Reefscape. Uneaten pellets dissolve after 20–40 seconds of running simulation time in Riverscape and 36 seconds in Reefscape, measured from when they touch the water.
+- **Feed** drops 30 pellets into each screen's Riverscape tank, or eight in Reefscape. Uneaten pellets dissolve after 20–40 seconds of running simulation time in Riverscape and 36 seconds in Reefscape, measured from when they touch the water.
 - **Pause / Resume** controls the animation. Your choice is remembered across restarts.
 - **Quit** closes the app until you open it again or next sign in.
 
@@ -51,9 +58,9 @@ The desktop app supports macOS only. The browser preview needs a browser with We
 
 It uses more power than a still wallpaper because it renders a 3D scene. The amount depends on your Mac, screen resolution and number of displays. There isn't a measured battery-life estimate yet.
 
-Both scenes use the same quality profiles and stop rendering when paused or hidden. The wallpaper also responds to window coverage, battery power, Low Power Mode and screen sleep.
+Both scenes stop rendering when paused or hidden. The wallpaper also responds to window coverage, battery power, Low Power Mode and screen sleep. Riverscape defaults to Ultra, with up to 4K rendering and a 30 fps cap; on battery, Ultra uses the Balanced pixel budget and a 20 fps cap. Reefscape retains its Balanced default.
 
-With the default Balanced profile, both environments use these limits:
+With the Balanced profile, both environments use these limits:
 
 | Desktop state | Frame rate |
 | --- | --- |
@@ -62,7 +69,7 @@ With the default Balanced profile, both environments use these limits:
 | Almost entirely covered | Stopped |
 | Low Power Mode, locked screen or sleeping display | Stopped |
 
-Pause it from the menu when you want a still aquarium, or quit to close the app completely. The browser previews offer Eco, Balanced and Detail profiles; actual frame rates depend on the device and scene. Battery life has not been measured.
+Pause it from the menu when you want a still aquarium, or quit to close the app completely. The browser previews offer Eco, Balanced and Detail profiles, plus Ultra in Riverscape; actual frame rates depend on the device and scene. Battery life has not been measured.
 
 ### Does it monitor my keystrokes?
 
@@ -121,7 +128,7 @@ Open [the local preview](http://127.0.0.1:8080). There is no `npm install` step;
 - Swipe or scroll through the gallery, or use the left and right arrow keys. Open the image or name to enter a scene.
 - Use **Pause / Resume**, **Feed**, **Fullscreen** and **Hide controls** in either scene. **Show controls** brings the controls back.
 - Press **Space** to pause or resume, **F** for fullscreen, and **H** to hide or show controls while the aquarium has focus.
-- **Quality** offers Eco (20 fps), Balanced (30 fps, the default) and Detail (60 fps). The selection is shared between the two scenes and remembered. These are frame-rate caps; lower profiles also reduce rendering resolution.
+- **Quality** offers Eco (20 fps), Balanced (30 fps) and Detail (60 fps). Riverscape also offers Ultra (30 fps, up to 4K), its default; Reefscape defaults to Balanced. Each scene remembers its own selection. These are frame-rate caps; lower profiles also reduce rendering resolution. The macOS menu includes **Riverscape Quality** for the live wallpaper.
 
 Reduce Motion starts the preview paused. Serve the page over HTTP; opening `index.html` directly will not load its JavaScript modules. Any static server also works, such as `python3 -m http.server 8080 --bind 127.0.0.1` if you have Python installed.
 

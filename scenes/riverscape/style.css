@@ -1,2 +1,15 @@
 @import url("../../ui/scene.css");
 #habitat { height: 100dvh; }
+.interaction-hint {
+  max-width: 22rem;
+  margin: 0 0 0 1rem;
+  padding: .5rem .75rem;
+  background: rgb(16 38 28 / .65);
+  color: #eff5e8;
+  font-size: .75rem;
+  line-height: 1.45;
+  text-align: right;
+}
+@media (max-width: 600px) {
+  .interaction-hint { max-width: 12rem; font-size: .6875rem; }
+}

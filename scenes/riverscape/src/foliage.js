@@ -17,7 +17,9 @@ const strandVertex = /* glsl */ `
   attribute vec4 bend;
   attribute vec4 along;
   attribute float thin;
+  attribute float leafKind;
   varying float vThin;
+  varying float vLeafKind;
   ${currentGLSL}
   vec2 strandMotion(vec3 root, vec3 direction, float s, float compliance) {
     float strength = currentStrength(root, waterTime);
@@ -48,6 +50,20 @@ const strandNormal = /* glsl */ `
 const strandPosition = /* glsl */ `
   vec3 transformed = position + bend.xyz * gMotion.x;
   vThin = thin;
+  vLeafKind = leafKind;
+`;
+
+const leafCoverageGLSL = /* glsl */ `
+  float leafCoverage(vec2 uv, float kind) {
+    if(kind < .5) return 1.;
+    float across=abs(uv.x-.5)*2.;
+    float axis=1.-smoothstep(.05,.14,across);
+    float phase=uv.y*16.-across*.85;
+    float distance=abs(fract(phase)-.5);
+    float aa=min(.2,fwidth(phase));
+    float leaflets=1.-smoothstep(.18-aa,.3+aa,distance);
+    return max(axis,leaflets);
+  }
 `;
 
 // Submerged leaves show almost no specular reflection: leaf tissue and water have
@@ -75,7 +91,8 @@ export function foliageMaterial() {
     shader.vertexShader =
       "varying vec2 leafUv; varying vec3 leafPosition;\n" + shader.vertexShader;
     shader.fragmentShader =
-      `varying vec2 leafUv; varying vec3 leafPosition; varying float vThin;
+      `varying vec2 leafUv; varying vec3 leafPosition; varying float vThin; varying float vLeafKind;
+      ${leafCoverageGLSL}
     ` + shader.fragmentShader;
     shader.fragmentShader = shader.fragmentShader.replace(
       "#include <color_fragment>",
@@ -90,10 +107,10 @@ export function foliageMaterial() {
       diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 1.22 + vec3(.008,.012,0.), midrib * .6);
       // Leaf undersides are paler and warmer than the upper surface.
       if (!gl_FrontFacing) diffuseColor.rgb *= vec3(.82, .76, .66);
-      // Thin tissue lets part of the scene behind show through. Coverage is held to exact
-      // quarters of the four multisamples so the driver never dithers it into a pattern:
-      // ribbon leaves pass a quarter of the light, their thinner edges half.
-      diffuseColor.a = vThin < .7 ? 1.0 : (edge > .45 ? .5 : .75);
+      // Tissue transmits light in the lighting model; only the fine leaf edges and
+      // dissected silhouettes reveal the backing. Avoid transparent-looking grass.
+      diffuseColor.a = ceil(leafCoverage(leafUv,vLeafKind)*4.)*.25;
+      if(vLeafKind < .5 && vThin > .7 && edge > .65) diffuseColor.a=.75;
     `,
     );
     shader.fragmentShader = shader.fragmentShader.replace(
@@ -119,7 +136,7 @@ export function foliageMaterial() {
       `,
     });
   };
-  material.customProgramCacheKey = () => "aquatic-leaves-v2";
+  material.customProgramCacheKey = () => "aquatic-leaves-v3";
   return material;
 }
 
@@ -132,14 +149,17 @@ export function foliageDepth({ animated = true } = {}) {
   material.onBeforeCompile = (shader) => {
     // Depth shaders do not pass through waterLitShader, so bind the clock here too.
     if (animated) shader.uniforms.waterTime = waterTime;
-    shader.vertexShader = strandVertex + shader.vertexShader;
+    shader.vertexShader = 'varying vec2 leafUv;\n' + strandVertex + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace(
       "#include <begin_vertex>",
       `gMotion = strandMotion(anchor, bend.xyz, along.w, bend.w);
-      ${strandPosition}`,
+      ${strandPosition}\nleafUv=uv;`,
     );
+    shader.fragmentShader = `varying vec2 leafUv;varying float vLeafKind;\n${leafCoverageGLSL}\n` + shader.fragmentShader;
+    shader.fragmentShader = shader.fragmentShader.replace('#include <clipping_planes_fragment>',
+      '#include <clipping_planes_fragment>\nif(leafCoverage(leafUv,vLeafKind)<.4) discard;');
   };
-  material.customProgramCacheKey = () => "aquatic-leaf-shadow-v3";
+  material.customProgramCacheKey = () => "aquatic-leaf-shadow-v4";
   return material;
 }
 

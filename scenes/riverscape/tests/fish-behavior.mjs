@@ -43,7 +43,7 @@ let travelling = 0,
   beatingInPlace = 0,
   peakBeatFrequency = 0;
 const swimAttribute = scene
-  .getObjectByName("Silver-blue freshwater fish")
+  .getObjectByName("Neon tetra school")
   .geometry.getAttribute("aSwim");
 const tracks = school.fish.map((fish) => ({
   minimum: fish.position.clone(),
@@ -265,6 +265,7 @@ let crowding = Infinity,
   regrouped = 0,
   regroupedFrames = 0,
   feedingPeak = 0,
+  maximumGape = 0,
   longestFeed = 0;
 for (let frame = DROP; frame < DROP + 75 * 60; frame++) {
   const time = frame * STEP;
@@ -272,6 +273,7 @@ for (let frame = DROP; frame < DROP + 75 * 60; frame++) {
   fed.update(STEP, time, null);
   const since = (frame - DROP) * STEP;
   for (const fish of fed.fish) {
+    maximumGape = Math.max(maximumGape, fish.gape);
     if (fish.mode === "feed") {
       if (!arrivals.has(fish.id)) arrivals.set(fish.id, since);
       // Time spent on one pellet, not time spent feeding. A fish working through a
@@ -310,6 +312,8 @@ for (let frame = DROP; frame < DROP + 75 * 60; frame++) {
 }
 regrouped /= regroupedFrames;
 const feeding = fed.getTelemetry();
+assert(maximumGape > 0.3 && maximumGape <= 1, 'Actual food strikes should visibly open the jaw');
+assert(fed.fish.every(fish => fish.gape < 0.02), 'Jaws relax after the food has gone');
 assert.ok(
   food.stats.eaten > PINCH / 2,
   `Most of a pinch of food should be eaten (got ${food.stats.eaten} of ${PINCH})`,
@@ -358,6 +362,9 @@ assert.ok(
 );
 fed.dispose();
 food.dispose();
+
+await import('./interaction.mjs');
+await import('./neon-anatomy.mjs');
 
 console.log(
   `PASS: 120 simulated seconds; ${roaming}/${COUNT} fish explored all three dimensions; ${(gliding / travelling * 100).toFixed(0)}% of travel was quiet-tail gliding; calm tail beats at most ${peakBeatFrequency.toFixed(2)} Hz; ${visits} inspection frames; ${behind} fish-frames behind the grass; ${(rheotaxis * 100).toFixed(0)}% of hovering fish facing upstream; minimum sampled spacing ${minimumSpacing.toFixed(3)}; slow approach gave room (${before.toFixed(2)} to ${after.toFixed(2)}) without a startle; a lunge startled ${telemetry.pointerResponses} fish directly and ${telemetry.escapes} in all, peaking at ${peakSpeed.toFixed(2)} units per second; a pinch of ${PINCH} pellets drew ${arrivals.size} fish over ${(times[times.length - 1] - times[0]).toFixed(1)} seconds, ${feeding.bites} taken in ${feeding.strikes} strikes, crowding to ${crowding.toFixed(2)} at the food and opening back out to ${regrouped.toFixed(2)}.`,
